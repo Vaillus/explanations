@@ -1,0 +1,72 @@
+<link rel="stylesheet" href="../frame/tokens.css"><script src="../frame/frame.js"></script><style>
+  .cm-table { display: grid; gap: 4px; font-size: var(--fs-small); }
+  .cm-r { display: grid; grid-template-columns: 1fr 1.2rem 1fr 7rem; gap: 6px; align-items: center; padding: 3px 0; border-bottom: 1px solid var(--line); }
+  .cm-r.off { color: var(--ink-dim); }
+  .cm-r .m { text-align: right; }
+  .cm-flow { display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-small); }
+  .cm-line { display: grid; grid-template-columns: 8.5rem 1fr; gap: 8px; }
+  .cm-line .k { color: var(--ink-dim); }
+  .cm-hit { background: color-mix(in srgb, var(--accent) 22%, transparent); padding: 0 2px; border-radius: 2px; }
+  .cm-ok { color: var(--ok); }
+  .cm-bad { color: var(--danger); }
+  .cm-none { color: var(--ink-dim); }
+</style>
+
+<p>The <b>correction memory</b> is a variant of lexicon matching built from corrections people already make. An <b>operator</b>, a person using Ultron during an exercise, corrects transcripts there. Each correction of a misrecognized keyterm gives a <b>rewrite</b>: Whisper wrote X, the operator corrected it to keyterm Y. A rewrite is replayed on later transcripts only once the operator puts on it the <b>automatic replay mark</b>, an explicit mark that says this replacement is to be done automatically from now on. Rewrites without the mark are kept out of the table.</p>
+
+<p>Replaying a rewrite needs no score and no match threshold. X and the transcript go through the same text normalization as in lexicon matching, and wherever the normalized X appears as whole words in the transcript, it is replaced by Y. When two marked rewrites cover overlapping words, the longer X is applied.</p>
+
+<figure>
+<div class="panel cm-table">
+  <div class="label">the correction memory · made-up rewrites</div>
+  <div class="cm-r"><span>« cervale »</span><span>→</span><span>Serval</span><span class="m cm-ok">marked</span></div>
+  <div class="cm-r"><span>« le clair »</span><span>→</span><span>Leclerc</span><span class="m cm-ok">marked</span></div>
+  <div class="cm-r off"><span>« rivoly »</span><span>→</span><span>Rivoli</span><span class="m">not marked</span></div>
+</div>
+</figure>
+
+<div class="tabs">
+  <div class="tab-row">
+    <button class="tab" aria-selected="true">The error seen before</button>
+    <button class="tab">X said as ordinary words</button>
+    <button class="tab">A new misspelling</button>
+    <button class="tab">A rewrite not marked</button>
+  </div>
+  <div class="tab-panel">
+    <div class="cm-flow">
+      <div class="cm-line"><span class="k">said</span><span>« le Serval avance »</span></div>
+      <div class="cm-line"><span class="k">Whisper wrote</span><span>« le <span class="cm-hit">cervale</span> avance »</span></div>
+      <div class="cm-line"><span class="k">after replay</span><span class="cm-ok">« le Serval avance »</span></div>
+    </div>
+    <p>Whisper repeats the error an operator already corrected and marked, and the rewrite fixes it.</p>
+  </div>
+  <div class="tab-panel" hidden>
+    <div class="cm-flow">
+      <div class="cm-line"><span class="k">said</span><span>« on attend le clair de lune »</span></div>
+      <div class="cm-line"><span class="k">Whisper wrote</span><span>« on attend <span class="cm-hit">le clair</span> de lune »</span></div>
+      <div class="cm-line"><span class="k">after replay</span><span class="cm-bad">« on attend Leclerc de lune »</span></div>
+    </div>
+    <p>X is also ordinary French. The replay has no audio and no score, so it fires wherever X is written. Such a misfire is on the operator who marked the rewrite; the system does not guard against it.</p>
+  </div>
+  <div class="tab-panel" hidden>
+    <div class="cm-flow">
+      <div class="cm-line"><span class="k">said</span><span>« le char Leclerc remonte »</span></div>
+      <div class="cm-line"><span class="k">Whisper wrote</span><span>« le char lequerque remonte »</span></div>
+      <div class="cm-line"><span class="k">after replay</span><span class="cm-none">« le char lequerque remonte » · no rewrite matches</span></div>
+    </div>
+    <p>A form of the keyterm no operator has corrected yet gets no help, and neither does a keyterm new to the mission.</p>
+  </div>
+  <div class="tab-panel" hidden>
+    <div class="cm-flow">
+      <div class="cm-line"><span class="k">said</span><span>« la rue de Rivoli »</span></div>
+      <div class="cm-line"><span class="k">Whisper wrote</span><span>« la rue de rivoly »</span></div>
+      <div class="cm-line"><span class="k">after replay</span><span class="cm-none">« la rue de rivoly » · the rewrite exists, without the mark</span></div>
+    </div>
+    <p>A correction made once, and not marked, stays a correction of that one transcript.</p>
+  </div>
+</div>
+
+<p>Distractor keyterms play no part. Lexicon matching compares the transcript with every keyterm of the lexicon, so each keyterm not said is one more string an ordinary word can fall close to. The correction memory never reads the lexicon: a keyterm can be written only through a marked rewrite, so its errors grow with the number of marked rewrites whose X is ordinary words, whatever the size of the lexicon.</p>
+
+<div class="callout"><div class="label">next to the other two techniques</div>
+<p>The correction memory fixes only errors that already happened and were corrected and marked. A keyterm new to a mission, or one Whisper misspells in a new way, needs lexicon matching by sound or the boosting tree, which work from the lexicon alone. The correction memory in turn fixes, with no threshold to tune, the errors that keep coming back. They complement each other.</p></div>

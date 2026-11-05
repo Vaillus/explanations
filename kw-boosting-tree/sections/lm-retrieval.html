@@ -1,0 +1,110 @@
+<link rel="stylesheet" href="../frame/tokens.css"><script src="../frame/frame.js"></script><style>
+  .lr-wrap { display: flex; flex-direction: column; gap: 10px; }
+  .lr-ctl { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: var(--fs-small); }
+  .lr-ctl input[type=text] { font-family: var(--mono); font-size: var(--fs-small); background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 3px; padding: 2px 6px; width: 11rem; }
+  .lr-ctl input[type=range] { accent-color: var(--accent); }
+  .lr-grams { display: flex; flex-wrap: wrap; gap: 4px; }
+  .lr-hits { display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-small); }
+  .lr-hit { display: grid; grid-template-columns: 9rem 1fr 4rem; gap: 8px; align-items: center; }
+  .lr-hit .bar { height: 8px; border-radius: 2px; background: var(--muted); }
+  .lr-hit.top .bar { background: var(--accent); }
+  .lr-hit.top { color: var(--ink); }
+  .lr-hit:not(.top) { color: var(--ink-dim); }
+  .lr-tree { font-size: var(--fs-small); line-height: 1.7; }
+  .lr-tree ul { list-style: none; margin: 0; padding-left: 1.3em; border-left: 1px solid var(--line); }
+  .lr-tree .d { color: var(--muted); }
+  .lr-tree .cmp { color: var(--ink); font-weight: bold; }
+  .lr-tree .found { color: var(--ok); font-weight: bold; }
+  .lr-tree .skip { color: var(--muted); opacity: 0.6; }
+</style>
+
+<p>Scoring every candidate span against every keyterm costs spans × keyterms comparisons, about 30,000 for one utterance with 1,000 keyterms. <b>Fast candidate retrieval</b> finds, without scoring every keyterm, the few keyterms close enough to a span to be worth scoring; only those get the full score of the spelling and the sound. Two indexes do it on spelling, built once per lexicon and queried for each span.</p>
+
+<div class="tabs">
+  <div class="tab-row">
+    <button class="tab" aria-selected="true">Character n-gram index</button>
+    <button class="tab">BK-tree</button>
+  </div>
+
+  <div class="tab-panel">
+    <p>A <b>character n-gram index</b> maps each run of n characters (3 here, a character 3-gram) to the keyterms that contain it. « rivoli » holds « riv », « ivo », « vol », « oli ». For a span, its 3-grams are looked up, each keyterm gets the number of 3-grams it shares with the span, and the few keyterms with the most shared 3-grams go on to be scored. A misspelling changes the 3-grams around the wrong letter and leaves the others, so the right keyterm still shares most of them.</p>
+    <figure>
+    <div class="panel lr-wrap">
+      <div class="label">a lexicon of 20 keyterms · type a span</div>
+      <div class="lr-ctl"><span>span</span><input type="text" id="lr-q" value="rue de rivoly"><span>keep the top</span><b id="lr-kv">3</b><input type="range" id="lr-k" min="1" max="6" value="3"></div>
+      <div class="lr-grams" id="lr-g"></div>
+      <div class="lr-hits" id="lr-h"></div>
+    </div>
+    <figcaption>Spaces are removed before the 3-grams are taken, so « le clerc » finds « leclerc ». Only the highlighted keyterms are scored.</figcaption>
+    </figure>
+    <p>The index lookup costs one access per 3-gram of the span, whatever the lexicon's size; what grows with the lexicon is how many keyterms each 3-gram lists. The same idea works on sound: an index from each phonetic code to its keyterms returns, in one lookup, the keyterms whose code equals the span's.</p>
+  </div>
+
+  <div class="tab-panel" hidden>
+    <p>A <b>BK-tree</b> indexes strings by edit distance. Each node holds a keyterm, and each child hangs under its parent at the edit distance between the two. To find every keyterm within distance k of a span, the search computes the span's distance d to a node, then visits only the children hung at a distance between d − k and d + k: by the triangle inequality of the edit distance, no keyterm under another child can be within k of the span.</p>
+    <figure>
+    <div class="panel lr-wrap">
+      <div class="label">the same 20 keyterms in a BK-tree · search for keyterms within k edits</div>
+      <div class="lr-ctl"><span>span</span><input type="text" id="lr-bq" value="cervale"><span>k =</span><b id="lr-bkv">2</b><input type="range" id="lr-bk" min="0" max="4" value="2"></div>
+      <div class="lr-tree" id="lr-t"></div>
+      <div id="lr-bs" style="font-size: var(--fs-small)"></div>
+    </div>
+    <figcaption>Bold: a keyterm the search compared with the span. Green: within k. Faded: a branch skipped without comparison. Number before a keyterm: its distance to its parent.</figcaption>
+    </figure>
+    <p>The BK-tree returns every keyterm within k exactly, with no missed candidate, but only for a distance measured on whole strings; a large k, as long keyterms need, makes it visit most of the tree.</p>
+  </div>
+</div>
+
+<p>At the sprint's size, the gain is in milliseconds. A compiled library such as RapidFuzz scores the 30,000 pairs by spelling in a few milliseconds without any index, well inside the 3 s per utterance. The index pays when the score per pair is expensive, a phonetic code or a G2P computed on the span, or when the lexicon grows past a few thousand keyterms.</p>
+
+<script>
+(function () {
+  const K = ["leclerc", "serval", "griffon", "caracal", "fennec", "jaguar", "tigre", "vercors", "rue de rivoli", "kalachnikov",
+             "famas", "mistral", "bastion", "aster", "rafale", "gazelle", "puma", "cougar", "felin", "sentinelle"];
+  const norm = s => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z]/g, "");
+  const grams = s => { s = norm(s); const g = new Set(); for (let i = 0; i + 3 <= s.length; i++) g.add(s.slice(i, i + 3)); return g; };
+  const IDX = {};
+  K.forEach(k => grams(k).forEach(g => (IDX[g] = IDX[g] || []).push(k)));
+  const Q = document.getElementById("lr-q"), KK = document.getElementById("lr-k");
+  function drawIdx() {
+    const g = [...grams(Q.value)], cnt = {};
+    g.forEach(x => (IDX[x] || []).forEach(k => cnt[k] = (cnt[k] || 0) + 1));
+    document.getElementById("lr-kv").textContent = KK.value;
+    document.getElementById("lr-g").innerHTML = g.map(x => `<span class="chip">${x} → ${(IDX[x] || []).length}</span>`).join("");
+    const hits = Object.entries(cnt).sort((a, b) => b[1] - a[1]);
+    document.getElementById("lr-h").innerHTML = hits.length ? hits.slice(0, 8).map(([k, c], i) =>
+      `<div class="lr-hit${i < +KK.value ? " top" : ""}"><span>${k}</span><div class="bar" style="width:${c / Math.max(g.length, 1) * 100}%"></div><span>${c} / ${g.length}</span></div>`).join("")
+      : `<span class="lr-hit">no keyterm shares a 3-gram</span>`;
+  }
+  Q.oninput = KK.oninput = drawIdx; drawIdx();
+
+  function lev(a, b) {
+    const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+    for (let j = 1; j <= b.length; j++) d[0][j] = j;
+    for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return d[a.length][b.length];
+  }
+  const root = { w: norm(K[0]), raw: K[0], ch: {} };
+  K.slice(1).forEach(k => {
+    let n = root; const w = norm(k);
+    for (;;) { const d = lev(w, n.w); if (!n.ch[d]) { n.ch[d] = { w, raw: k, ch: {} }; break; } n = n.ch[d]; }
+  });
+  const BQ = document.getElementById("lr-bq"), BK = document.getElementById("lr-bk");
+  function drawTree() {
+    const q = norm(BQ.value), k = +BK.value; let cmp = 0, found = [];
+    document.getElementById("lr-bkv").textContent = k;
+    function render(n, edge, visit) {
+      let cls = "skip", extra = "";
+      let d = null;
+      if (visit) { d = lev(q, n.w); cmp++; cls = d <= k ? "found" : "cmp"; extra = ` <span class="d">(${d} from span)</span>`; if (d <= k) found.push(n.raw); }
+      const kids = Object.keys(n.ch).map(Number).sort((a, b) => a - b).map(e =>
+        render(n.ch[e], e, visit && e >= d - k && e <= d + k)).join("");
+      return `<li><span class="d">${edge === null ? "root" : edge}</span> <span class="${cls}">${n.raw}</span>${extra}${kids ? `<ul>${kids}</ul>` : ""}</li>`;
+    }
+    document.getElementById("lr-t").innerHTML = `<ul style="border:none;padding:0">${render(root, null, true)}</ul>`;
+    document.getElementById("lr-bs").innerHTML = `compared with <b>${cmp}</b> of ${K.length} keyterms · within ${k}: <b>${found.join(", ") || "none"}</b>`;
+  }
+  BQ.oninput = BK.oninput = drawTree; drawTree();
+})();
+</script>

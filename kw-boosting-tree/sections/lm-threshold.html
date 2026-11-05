@@ -1,0 +1,73 @@
+<link rel="stylesheet" href="../frame/tokens.css"><script src="../frame/frame.js"></script><style>
+  .lt-wrap { display: flex; flex-direction: column; gap: 10px; }
+  .lt-ctl { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: var(--fs-small); }
+  .lt-ctl input[type=range] { width: min(100%, 16rem); accent-color: var(--accent); }
+  .lt-ctl button { font-family: var(--mono); font-size: var(--fs-small); background: var(--raised); color: var(--ink); border: 1px solid var(--line); border-radius: 3px; padding: 2px 10px; cursor: pointer; }
+  .lt-ctl button[aria-pressed=true] { border-color: var(--accent); color: var(--accent); }
+  .lt-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: 10px; }
+  .lt-row { display: grid; grid-template-columns: 1fr 3.2rem 5.5rem; gap: 6px; font-size: var(--fs-small); padding: 2px 0; border-bottom: 1px solid var(--line); }
+  .lt-row .s { text-align: right; }
+  .lt-row.rep.good { color: var(--ok); }
+  .lt-row.rep.bad { color: var(--danger); }
+  .lt-row.keep { color: var(--ink-dim); }
+  .lt-tot { font-size: var(--fs-small); }
+</style>
+
+<p>Lexicon matching sees only the transcript's text, not the audio. A common word that was said and sounds close to a keyterm looks, to it, exactly like a misspelled keyterm: the span is the same kind of string at the same kind of score. The <b>match threshold</b>, the score a candidate span must reach against a keyterm to be replaced by it, is the only thing that tells them apart, and it can only reject both or accept both.</p>
+
+<figure>
+<div class="panel lt-wrap">
+  <div class="label">one threshold, two kinds of span · spelling score, made-up utterances</div>
+  <div class="lt-ctl">
+    <span>match threshold = <b id="lt-v">0.70</b></span><input type="range" id="lt-t" min="0.5" max="1" step="0.01" value="0.7">
+    <span>lexicon:</span><button id="lt-s">100 keyterms</button><button id="lt-l">1,000 keyterms</button>
+  </div>
+  <div class="lt-cols">
+    <div><div class="label">a keyterm was said, Whisper misspelled it</div><div id="lt-a"></div></div>
+    <div><div class="label">an ordinary word was said, a keyterm is close</div><div id="lt-b"></div></div>
+  </div>
+  <div class="lt-tot" id="lt-tot"></div>
+</div>
+<figcaption>Green: a keyterm recovered. Red: an ordinary word replaced by a keyterm that was not said. Grey: left as Whisper wrote it.</figcaption>
+</figure>
+
+<p>Every keyterm of the lexicon that is not said in the utterance is a distractor keyterm, and each one is one more string that some ordinary word of the transcript can fall close to. Going from 100 to 1,000 keyterms does not change the spans on the left, and adds rows on the right: the chance that some keyterm sits within the threshold of an ordinary word grows with the lexicon. A keyterm that is itself an ordinary word, such as « Mistral » for a unit and the wind, scores 1 against the word and is replaced at any threshold.</p>
+
+<p>The two errors show in different numbers. A keyterm recovered lowers B-WER; an ordinary word replaced raises U-WER. The threshold trades one against the other, and it is set on a set of utterances with reference transcripts and a lexicon of the mission's size, kept apart from the test utterances. Systems add guards on top of it: a threshold that depends on the keyterm's length (short keyterms are close to many words), no replacement of very frequent words, a minimum keyterm length, or a phonetic match required on top of the spelling one.</p>
+
+<script>
+(function () {
+  function lev(a, b) {
+    const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+    for (let j = 1; j <= b.length; j++) d[0][j] = j;
+    for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return d[a.length][b.length];
+  }
+  const sc = (a, b) => 1 - lev(a, b) / Math.max(a.length, b.length);
+  const SAID = [["rivoly", "rivoli"], ["le clerc", "leclerc"], ["cervale", "serval"], ["fenek", "fennec"], ["griffond", "griffon"], ["caracale", "caracal"], ["vereor", "vercors"]];
+  // [ordinary word said, close keyterm, keyterm in the 100-keyterm lexicon]
+  const ORD = [["mistral", "mistral", true], ["le clair", "leclerc", true], ["tigres", "tigre", true], ["fennecs", "fennec", false], ["griffons", "griffon", false], ["carcan", "caracal", false], ["rivaux", "rivoli", false], ["bastions", "bastion", false]];
+  let big = true;
+  const T = document.getElementById("lt-t"), S = document.getElementById("lt-s"), L = document.getElementById("lt-l");
+  S.onclick = () => { big = false; draw(); }; L.onclick = () => { big = true; draw(); };
+  T.oninput = draw;
+  function row(a, b, s, rep, good) {
+    return `<div class="lt-row ${rep ? "rep " + (good ? "good" : "bad") : "keep"}"><span>« ${a} » → « ${b} »</span><span class="s">${s.toFixed(2)}</span><span>${rep ? "replaced" : "kept"}</span></div>`;
+  }
+  function draw() {
+    const t = +T.value;
+    document.getElementById("lt-v").textContent = t.toFixed(2);
+    S.setAttribute("aria-pressed", !big); L.setAttribute("aria-pressed", big);
+    let fixed = 0, wrong = 0;
+    document.getElementById("lt-a").innerHTML = SAID.map(([a, b]) => {
+      const s = sc(a, b), r = s >= t; if (r) fixed++; return row(a, b, s, r, true);
+    }).join("");
+    document.getElementById("lt-b").innerHTML = ORD.filter(o => big || o[2]).map(([a, b]) => {
+      const s = sc(a, b), r = s >= t; if (r) wrong++; return row(a, b, s, r, false);
+    }).join("");
+    document.getElementById("lt-tot").innerHTML = `keyterms recovered: <b>${fixed} / ${SAID.length}</b> · ordinary words replaced: <b>${wrong}</b>`;
+  }
+  draw();
+})();
+</script>

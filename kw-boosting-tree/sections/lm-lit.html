@@ -1,0 +1,60 @@
+<link rel="stylesheet" href="../frame/tokens.css"><script src="../frame/frame.js"></script><style>
+  .ll-chart { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: 12px; }
+  .ll-m { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-small); }
+  .ll-bar { display: grid; grid-template-columns: 6.5rem 1fr 3rem; gap: 6px; align-items: center; }
+  .ll-bar .b { height: 10px; border-radius: 2px; }
+  .ll-bar .b.base { background: var(--muted); }
+  .ll-bar .b.ped { background: var(--accent); }
+  .ll-bar .v { text-align: right; }
+  .ll-note { color: var(--ink-dim); }
+  .ll-t td { vertical-align: top; }
+</style>
+
+<p>Lexicon matching by spelling and by sound, with no trained model and no LLM, is rarely the subject of a paper: it appears as the baseline that papers on trained correctors beat. Two such papers measure it, or its retrieval stage, at a lexicon size near the sprint's, and one of them on Whisper.</p>
+
+<div class="tabs">
+  <div class="tab-row">
+    <button class="tab" aria-selected="true">On Whisper</button>
+    <button class="tab">Retrieval at scale</button>
+  </div>
+
+  <div class="tab-panel">
+    <p><a href="https://arxiv.org/abs/2508.20700">Luo et al., « Generative Annotation for ASR Named Entity Correction », arXiv 2508.20700, 2025</a> (a preprint) report, as a baseline, phonetic edit distance matching of the transcript against an entity list, a method of Raghuvanshi et al. (« Entity resolution for noisy ASR transcripts », EMNLP 2019): candidate entities found by how close they sound, then the span replaced. Vanilla Whisper large-v2, Mandarin, so the error rates count characters instead of words. On the AISHELL test set the list holds 3,101 entities, and most utterances hold one entity: nearly all the list is distractor keyterms, at three times the sprint's size.</p>
+    <figure>
+      <div class="ll-chart" id="ll-c"></div>
+      <figcaption>Grey: Whisper alone. Accent: with phonetic matching. Results tables of the paper. On the error rates lower is better; on recall higher is better.</figcaption>
+    </figure>
+    <p>The trade of the match threshold shows in the numbers. On AISHELL, recall on the entities goes from 70.9% to 83.3% and the error rate on the entity characters from 15.4 to 10.9, while the error rate on the other characters rises from 10.0 to 10.4: ordinary words replaced by entities that were not said. The overall error rate barely moves, 10.47 to 10.40. On a set with a list of only 50 entities, the gain is larger (recall 12.2% to 61.8%) and the other characters suffer less (15.3 to 15.5).</p>
+    <p>The paper's own method, a trained model that picks the entities, reaches 87.3% recall with no rise on the other characters. The authors trace the gap to entities that sound alike: the more entities in the list, the more of them sound alike, and matching by sound cannot choose between them. <a href="https://arxiv.org/abs/2403.17645">Wang et al., « DANCER », LREC-COLING 2024</a> report the same limit on a Mandarin set built of entities that sound alike.</p>
+  </div>
+
+  <div class="tab-panel" hidden>
+    <p><a href="https://arxiv.org/abs/2306.02317">Antonova et al., « SpellMapper », Interspeech 2023</a> (NVIDIA) correct the transcript with a trained model, so the method as a whole is not lexicon matching; its first stage is. It retrieves, for each transcript, ten candidate keyterms through an index of character n-gram mappings learned from a corpus of misrecognitions, a learned version of the character n-gram index. Models of another family than Whisper (CTC and RNN-T).</p>
+    <table class="ll-t">
+      <thead><tr><th>test set</th><th>keyterms per speaker, mean / max</th><th>WER without → with</th><th>WER if every keyterm were fixed</th></tr></thead>
+      <tbody>
+        <tr><td>Spoken Wikipedia</td><td>172 / 1,341</td><td>6.69 → 5.26 (CTC)</td><td>4.46</td></tr>
+        <tr><td>SPGISpeech</td><td>21 / 86</td><td>5.88 → 5.50 (CTC)</td><td>5.33</td></tr>
+        <tr><td>UserLibri</td><td>43 / 192</td><td>3.35 → 2.89 (CTC)</td><td>2.52</td></tr>
+      </tbody>
+    </table>
+    <p>The retrieval finds the spoken keyterm among its ten candidates for 74% to 90% of them, which bounds what any scoring after it can recover. The authors chose it over edit distance retrieval, which they describe as slow, not trainable and possibly of low recall; the paper gives no number for edit distance retrieval itself.</p>
+  </div>
+</div>
+
+<div class="callout"><div class="label">gaps</div>
+<p>No paper measures lexicon matching on a finetuned Whisper, none on French, and none with a rule-based phonetic code for French. The one Whisper result is a baseline in a preprint, on Mandarin. No paper reports B-WER and U-WER for lexicon matching with 500 or 1,000 distractor keyterms in the protocol of section 3, so its numbers cannot be put next to those of the boosting tree on the same scale.</p></div>
+
+<script>
+(function () {
+  const M = [
+    ["AISHELL · 3,101 entities", [["entity recall %", 70.85, 83.34, 100], ["entity error", 15.41, 10.85, 50], ["other characters error", 10.00, 10.42, 50], ["overall error", 10.47, 10.40, 50]]],
+    ["BuzzWord · 50 entities", [["entity recall %", 12.22, 61.82, 100], ["entity error", 46.49, 23.62, 50], ["other characters error", 15.29, 15.49, 50], ["overall error", 16.23, 10.67, 50]]]
+  ];
+  document.getElementById("ll-c").innerHTML = M.map(([t, rows]) =>
+    `<div class="ll-m"><div class="label">${t}</div>${rows.map(([n, a, b, max]) =>
+      `<div class="ll-note">${n}</div>
+       <div class="ll-bar"><span>Whisper</span><div class="b base" style="width:${a / max * 100}%"></div><span class="v">${a.toFixed(1)}</span></div>
+       <div class="ll-bar"><span>+ matching</span><div class="b ped" style="width:${b / max * 100}%"></div><span class="v">${b.toFixed(1)}</span></div>`).join("")}</div>`).join("");
+})();
+</script>

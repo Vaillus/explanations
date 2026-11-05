@@ -1,0 +1,58 @@
+<link rel="stylesheet" href="../frame/tokens.css"><script src="../frame/frame.js"></script><style>
+  .fu-wrap { display: flex; flex-direction: column; gap: 10px; }
+  .fu-ctl { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: var(--fs-small); }
+  .fu-ctl input[type=range] { width: min(100%, 16rem); accent-color: var(--accent); }
+  .fu-row { display: grid; grid-template-columns: minmax(0, 12rem) minmax(0, 1fr) 4rem; gap: 8px; align-items: center; font-size: var(--fs-small); }
+  .fu-bar { height: 14px; position: relative; background: var(--raised); border-radius: 3px; overflow: hidden; }
+  .fu-bar span { position: absolute; top: 0; bottom: 0; right: 0; background: var(--ink-dim); }
+  .fu-bar span.b { background: var(--accent); }
+  .fu-row.cut { opacity: .45; }
+  .fu-row .n { text-align: right; }
+  .fu-tag { font-size: var(--fs-label); }
+  .fu-formula { font-size: var(--fs-body); text-align: center; padding: 6px; }
+</style>
+
+<p>The boosting tree enters Whisper's decoding by <b>shallow fusion</b>: a score from outside the model is added to the model's log-probabilities at each decoding step, before pruning, and the model itself is not retrained. The same mechanism is commonly used to add the scores of a separate text-only model; here the outside score comes from the prefix tree.</p>
+
+<p>The sum takes the form of a <b>log-linear score combination</b>. For a token <i>t</i> that extends a hypothesis:</p>
+
+<div class="fu-formula panel">score(<i>t</i>) = log P<sub>Whisper</sub>(<i>t</i> | audio, tokens so far) + λ · bias(<i>t</i>)</div>
+
+<p>bias(<i>t</i>) is the change of accumulated tree score that writing <i>t</i> causes (one level of the tree when <i>t</i> continues a keyterm, a negative amount when it breaks one), and λ is the weight that scales it against Whisper's log-probabilities. With one unit per level, λ is the boosting weight; the TurboBias paper writes the same sum over a whole transcript as log P(W | X) + λ log P<sub>C</sub>(W), with P<sub>C</sub> the score of the tree (<a href="https://arxiv.org/abs/2508.07014">Andrusenko et al., « TurboBias », ASRU 2025</a>, eq. 1). Too small a λ leaves a rare keyterm below the cut; too large a λ lets keyterms in where they were not said. Papers pick λ on a set of utterances kept apart from the test set.</p>
+
+<p>The slider replays step 4 of section 4 with the tree holding « Leclerc » (variant <code>" Le"</code> only). The keyterm's hypothesis has two boosted tokens, <code>" Le"</code> and <code>"c"</code>, so it gains 2 × the boosting weight; the two others write no keyterm token.</p>
+
+<figure>
+<div class="panel fu-wrap">
+  <div class="label">step 4 · beam width 2 · made-up log-probabilities</div>
+  <div class="fu-ctl"><span>boosting weight = <b id="fu-v">0.0</b></span><input type="range" id="fu-w" min="0" max="1.5" step="0.05" value="0"></div>
+  <div id="fu-rows" class="fu-wrap"></div>
+</div>
+<figcaption>Bars show the score; the accent part is the boosting weight added. The keyterm's hypothesis survives pruning once the boosting weight passes 0.35.</figcaption>
+</figure>
+
+<p>In code, shallow fusion sits in a <b>logits processor</b>: a function the decoder calls at each decoding step, which receives the tokens of every hypothesis and the scores of every next token, and may change those scores before beam search picks. In Hugging Face transformers it is a <a href="https://huggingface.co/docs/transformers/en/internal/generation_utils"><code>LogitsProcessor</code></a> with <code>__call__(input_ids, scores)</code>: <code>input_ids</code> holds each hypothesis's tokens, from which the processor finds its tree position, and <code>scores</code> holds one row per hypothesis to which it adds the boosting weights. In beam search the processors receive scores already turned into log-probabilities, so the added weight stays as it is. openai-whisper has the same hook, <a href="https://github.com/openai/whisper/blob/main/whisper/decoding.py#L407-L420"><code>LogitFilter.apply(logits, tokens)</code></a>, but it runs before the scores are normalized into log-probabilities, so part of a weight added there is undone by that normalization.</p>
+
+<script>
+(function () {
+  const H = [
+    { t: ' le char le" cl"', base: -2.7, k: 0 },
+    { t: ' le char le" clair"', base: -3.8, k: 0 },
+    { t: ' le char" Le" "c"', base: -4.5, k: 2 }
+  ];
+  const w = document.getElementById("fu-w"), v = document.getElementById("fu-v"), rows = document.getElementById("fu-rows");
+  function draw() {
+    const x = parseFloat(w.value); v.textContent = x.toFixed(2);
+    const sc = H.map(h => h.base + h.k * x);
+    const order = sc.map((s, i) => [s, i]).sort((a, b) => b[0] - a[0]).map(p => p[1]);
+    const kept = new Set(order.slice(0, 2));
+    const span = 6;
+    rows.innerHTML = H.map((h, i) => {
+      const s = sc[i], wid = Math.max(0, (span + s) / span * 100), bw = h.k * x / span * 100;
+      return `<div class="fu-row ${kept.has(i) ? "" : "cut"}"><span><code>${h.t.replace(/"/g, "")}</code> <span class="fu-tag">${kept.has(i) ? "kept" : "pruned"}</span></span>
+        <div class="fu-bar"><span style="left:${100 - wid}%"></span><span class="b" style="left:${100 - bw}%"></span></div><span class="n">${s.toFixed(2)}</span></div>`;
+    }).join("");
+  }
+  w.oninput = draw; draw();
+})();
+</script>

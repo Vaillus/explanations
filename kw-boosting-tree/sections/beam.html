@@ -1,0 +1,66 @@
+<link rel="stylesheet" href="../frame/tokens.css"><script src="../frame/frame.js"></script><style>
+  .bm-wrap { display: flex; flex-direction: column; gap: 10px; }
+  .bm-ctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .bm-ctl button { font: inherit; font-size: var(--fs-small); border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 4px; padding: 3px 12px; cursor: pointer; }
+  .bm-ctl button:disabled { opacity: .4; cursor: default; }
+  .bm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: 8px; }
+  .bm-cand { display: flex; justify-content: space-between; gap: 8px; padding: 4px 8px; border-radius: 4px; font-size: var(--fs-small); border: 1px solid var(--line); }
+  .bm-cand.kept { border-color: var(--ok); }
+  .bm-cand.cut { opacity: .5; text-decoration: line-through; }
+  .bm-cand.key { box-shadow: inset 3px 0 0 var(--accent); }
+  .bm-tok { white-space: pre; }
+  .bm-tok b { background: var(--raised); border-radius: 3px; padding: 0 2px; font-weight: normal; }
+  .bm-num { color: var(--ink-dim); white-space: nowrap; }
+  .bm-cap { font-size: var(--fs-small); min-height: 3em; }
+</style>
+
+<p>Whisper writes a transcript as a sequence of <b>tokens</b>: subword units of its fixed vocabulary of about 50,000 entries. A common word is one token; a rare word takes several. With Whisper's tokenizer, <code>" char"</code> is one token, <code>" Leclerc"</code> is four (<code>" Le"</code> <code>"c"</code> <code>"ler"</code> <code>"c"</code>), and <code>" Kalachnikov"</code> is four (<code>" Kal"</code> <code>"ach"</code> <code>"nik"</code> <code>"ov"</code>).</p>
+
+<p>At each <b>decoding step</b>, Whisper scores every token of its vocabulary as the next one, given the audio and the tokens written so far, and gives each a <b>log-probability</b>: the logarithm of its probability, zero or negative. One token is then picked to extend the transcript.</p>
+
+<p><b>Beam search</b> keeps several partial transcripts alive instead of one. Each is a <b>hypothesis</b>: the tokens written so far, with a score. The score is the <b>cumulative log-probability</b>, the sum of the log-probabilities of the hypothesis's tokens, so each added token lowers it. At each step beam search extends every hypothesis by its best next tokens, then keeps only the <b>beam width</b> best of all the extensions: dropping the rest is <b>pruning</b>, and a dropped hypothesis never comes back. <b>Greedy decoding</b> is the case of a beam width of 1, one hypothesis extended by its single best token.</p>
+
+<figure>
+<div class="panel bm-wrap">
+  <div class="label">beam search · beam width 2 · spoken: « le char Leclerc… »</div>
+  <div class="bm-ctl">
+    <button id="bm-prev">◀ step</button>
+    <button id="bm-next">step ▶</button>
+    <span class="chip" id="bm-step"></span>
+  </div>
+  <div class="bm-grid" id="bm-grid"></div>
+  <div class="bm-cap" id="bm-cap"></div>
+</div>
+<figcaption>The tokens are Whisper's real tokens for these words; the log-probabilities are made up for the trace. A green border marks the hypotheses kept, a struck line the ones pruned, a left bar the path of the keyterm Leclerc.</figcaption>
+</figure>
+
+<p>The trace ends with the keyterm pruned at its second token: written in full, <code>" Le" "c" "ler" "c"</code> scores lower than the common words <code>" le" " cl"</code> at every step, so it falls out of the beam before Whisper hears its end. The techniques of this report act on that ranking.</p>
+
+<script>
+(function () {
+  const S = [
+    { cap: "Step 1. From the start of the transcript, the best next tokens are « le », « Le » and « la ». The two best are kept.",
+      c: [["<b> le</b>", -0.2, -0.2, 1, 0], ["<b> Le</b>", -1.9, -1.9, 1, 1], ["<b> la</b>", -2.5, -2.5, 0, 0]] },
+    { cap: "Step 2. Each kept hypothesis is extended; its score is the sum so far. « Le char » scores −2.4 and is pruned behind « le chat » (−2.2).",
+      c: [[" le<b> char</b>", -0.4, -0.6, 1, 0], [" le<b> chat</b>", -2.0, -2.2, 1, 0], [" Le<b> char</b>", -0.5, -2.4, 0, 0], [" Le<b>c</b>", -3.0, -4.9, 0, 1]] },
+    { cap: "Step 3. The keyterm can start again after « le char ». Its first token « Le » (−2.3) stays in the beam, second behind the article « le ».",
+      c: [[" le char<b> le</b>", -1.2, -1.8, 1, 0], [" le char<b> Le</b>", -2.3, -2.9, 1, 1], [" le chat<b> est</b>", -0.8, -3.0, 0, 0], [" le chat<b> Le</b>", -2.6, -4.8, 0, 0]] },
+    { cap: "Step 4. The keyterm's second token « c » brings its hypothesis to −4.5. Two hypotheses built from common words score higher, and the keyterm is pruned.",
+      c: [[" le char le<b> cl</b>", -0.9, -2.7, 1, 0], [" le char le<b> clair</b>", -2.0, -3.8, 1, 0], [" le char Le<b>c</b>", -1.6, -4.5, 0, 1], [" le char Le<b> cl</b>", -2.2, -5.1, 0, 0]] }
+  ];
+  let i = 0;
+  const g = document.getElementById("bm-grid"), cap = document.getElementById("bm-cap"),
+        st = document.getElementById("bm-step"), p = document.getElementById("bm-prev"), n = document.getElementById("bm-next");
+  function draw() {
+    const s = S[i];
+    g.innerHTML = s.c.map(([t, lp, cum, kept, key]) =>
+      `<div class="bm-cand ${kept ? "kept" : "cut"} ${key ? "key" : ""}"><span class="bm-tok">${t}</span><span class="bm-num">${lp.toFixed(1)} → ${cum.toFixed(1)}</span></div>`).join("");
+    cap.textContent = s.cap;
+    st.textContent = "step " + (i + 1) + " / " + S.length;
+    p.disabled = i === 0; n.disabled = i === S.length - 1;
+  }
+  p.onclick = () => { if (i > 0) { i--; draw(); } };
+  n.onclick = () => { if (i < S.length - 1) { i++; draw(); } };
+  draw();
+})();
+</script>

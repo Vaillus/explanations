@@ -1,0 +1,57 @@
+<link rel="stylesheet" href="../frame/tokens.css"><script src="../frame/frame.js"></script><style>
+  .sq-wrap { display: flex; flex-direction: column; gap: 10px; }
+  .sq-ctl { display: flex; gap: 8px; flex-wrap: wrap; }
+  .sq-ctl button { font-family: var(--mono); font-size: var(--fs-small); background: var(--raised); color: var(--ink); border: 1px solid var(--line); border-radius: 3px; padding: 2px 10px; cursor: pointer; }
+  .sq-ctl button[aria-pressed=true] { border-color: var(--accent); color: var(--accent); }
+  .sq-bar { display: grid; grid-template-columns: 11rem 1fr 3rem; gap: 6px; align-items: center; font-size: var(--fs-small); }
+  .sq-bar .b { height: 12px; border-radius: 2px; }
+  .sq-bar .v { text-align: right; }
+  .sq-n { font-size: var(--fs-small); color: var(--ink-dim); }
+</style>
+
+<p>No paper runs the boosting tree and then lexicon matching on its transcript. One paper runs the same two stages with a trained corrector in place of lexicon matching: a bias added while the model writes, then a correction of its transcript, each alone and both in sequence. It is the closest measure of the plan.</p>
+
+<p><a href="https://arxiv.org/abs/2203.00888">Wang, Liu, Li, Miljanic, Zhao and Khalil, « Towards Contextual Spelling Correction for Customization of End-to-end Speech Recognition Systems », arXiv 2203.00888, 2022</a> (Microsoft). The first stage is a list of phrases built into a weighted graph and added by shallow fusion, of the same family as the boosting tree. The second is <b>contextual spelling correction</b>: a small trained model that reads the transcript and the list, and rewrites the spans it takes for misrecognized phrases. Before it scores, the list is cut to the 100 phrases closest to the transcript. RNN-T models, English, Microsoft's test sets.</p>
+
+<figure>
+<div class="panel sq-wrap">
+  <div class="label">WER (%) · RNN-T · Tables IV and V</div>
+  <div class="sq-ctl" id="sq-ctl"></div>
+  <div class="sq-n" id="sq-n"></div>
+  <div id="sq-bars"></div>
+</div>
+<figcaption>Lower is better. The corrector is the paper's faster variant (FCSC).</figcaption>
+</figure>
+
+<p>On the sets where list phrases are said, the sequence gives the lowest WER on four of five, and on the fifth (the 210 commands of a text editor) the corrector alone does better than both. On the set where no phrase of the list is said, each stage adds its own false alarms: 13.9 alone, 14.0 with the bias, 14.4 with the corrector or both. The paper reports neither B-WER nor U-WER, so how much of each gain is recovered phrases and how much is ordinary words replaced cannot be read.</p>
+
+<p>The second stage reads a transcript the first already biased: keyterms the boosting tree wrote are spelled as in the lexicon and score 1 against it, and what is left to match is what the tree did not recover. The false alarms of both stages reach the same U-WER, so the boosting weight and the match threshold are tuned together, on the transcripts of the tree.</p>
+
+<div class="callout"><div class="label">gaps</div>
+<p>No paper chains the boosting tree with rule-based lexicon matching, on Whisper or on any other model, and no code does: the libraries of sections 12 and 18 run one stage each. The one paper with both stages uses a trained corrector, which the sprint does not have, and English voice-assistant data.</p></div>
+
+<script>
+(function () {
+  const S = {
+    "Name set": ["1,509 person names in the list", [30.2, 23.9, 17.6, 16.1]],
+    "Assistant dev": ["1,507 person names", [24.2, 19.5, 16.8, 15.5]],
+    "Assistant blind": ["1,507 person names", [22.5, 17.1, 14.6, 13.1]],
+    "Text editor": ["210 editing commands", [14.6, 10.3, 7.2, 7.9]],
+    "Medical": ["11,638 medical terms", [14.0, 6.9, 8.6, 5.2]],
+    "Random8k": ["a list from the Name set, no phrase of it said", [13.9, 14.0, 14.4, 14.4]]
+  };
+  const N = [["no biasing", "var(--muted)"], ["bias while writing", "color-mix(in srgb, var(--accent) 45%, transparent)"], ["corrector after", "var(--info)"], ["both in sequence", "var(--accent)"]];
+  const ctl = document.getElementById("sq-ctl");
+  let cur = "Name set";
+  function draw() {
+    ctl.innerHTML = Object.keys(S).map(k => `<button aria-pressed="${k === cur}">${k}</button>`).join("");
+    [...ctl.children].forEach(b => b.onclick = () => { cur = b.textContent; draw(); });
+    const [note, v] = S[cur];
+    document.getElementById("sq-n").textContent = note;
+    const best = Math.min(...v);
+    document.getElementById("sq-bars").innerHTML = v.map((x, i) =>
+      `<div class="sq-bar"><span>${N[i][0]}</span><div class="b" style="width:${x / 32 * 100}%;background:${N[i][1]}"></div><span class="v">${x === best ? "<b>" + x.toFixed(1) + "</b>" : x.toFixed(1)}</span></div>`).join("");
+  }
+  draw();
+})();
+</script>

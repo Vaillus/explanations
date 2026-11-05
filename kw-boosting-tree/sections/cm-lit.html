@@ -1,0 +1,80 @@
+<link rel="stylesheet" href="../frame/tokens.css"><script src="../frame/frame.js"></script><style>
+  .cl-chart { display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-small); }
+  .cl-bar { display: grid; grid-template-columns: 11rem 1fr 3rem; gap: 6px; align-items: center; }
+  .cl-bar .b { height: 10px; border-radius: 2px; background: var(--muted); }
+  .cl-bar .b.inc { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+  .cl-bar .b.aft { background: var(--accent); }
+  .cl-bar .v { text-align: right; }
+  .cl-ctl { display: flex; gap: 8px; flex-wrap: wrap; }
+  .cl-ctl button { font-family: var(--mono); font-size: var(--fs-small); background: var(--raised); color: var(--ink); border: 1px solid var(--line); border-radius: 3px; padding: 2px 10px; cursor: pointer; }
+  .cl-ctl button[aria-pressed=true] { border-color: var(--accent); color: var(--accent); }
+</style>
+
+<p>No paper measures the correction memory as section 19 defines it, a table of rewrites that people mark by hand for replay. Two papers measure close relatives, each covering one half of it: one learns from the corrections users make, the other replays a table of rewrites. A third, on the boosting tree, shows where a rewrite can go besides the transcript.</p>
+
+<div class="tabs">
+  <div class="tab-row">
+    <button class="tab" aria-selected="true">Learning from corrections</button>
+    <button class="tab">A table of rewrites</button>
+    <button class="tab">A rewrite in the prefix tree</button>
+  </div>
+
+  <div class="tab-panel">
+    <p><a href="https://www.isca-archive.org/interspeech_2004/yu04f_interspeech.pdf">Yu, Hwang, Mau, Acero and Deng, « Unsupervised Learning from Users' Error Correction in Speech Dictation », Interspeech 2004</a> (Microsoft) take the corrections users make in a dictation system and adapt the speech-to-text model with them. A word the user typed in that the speech-to-text model did not know is added to its vocabulary, with a raised probability; a pronunciation is learned from the audio; a phrase just corrected is favoured for the rest of the dictation session. English, four users each dictating 2,000 to 4,000 words of e-mails, a speech-to-text model of the time, not Whisper.</p>
+    <figure>
+      <div class="panel cl-chart">
+        <div class="label">WER (%), average of the four users · Table 1</div>
+        <div class="cl-ctl" id="cl-ctl"></div>
+        <div id="cl-bars"></div>
+      </div>
+      <figcaption>Grey: no learning. Light accent: measured while learning, each error counted before it is learned from. Accent: the same audio run again after learning.</figcaption>
+    </figure>
+    <p>The paper does not trust every edit. A user also edits text to change what they meant, so each edit is first scored, on the audio, for how likely it is the correction of a recognition error, and learned from only above a threshold. The automatic replay mark puts the operator's own judgment where that score was. The gain comes mostly from new words entering the speech-to-text model, which helps on every later utterance of the word, whatever Whisper's error would have been: a corrected keyterm is used from then on, much as one added to the lexicon of the boosting tree.</p>
+  </div>
+
+  <div class="tab-panel" hidden>
+    <p><a href="https://arxiv.org/abs/2105.09930">Sodhi et al., « Mondegreen: A Post-Processing Solution to Speech Recognition Error Correction for Voice Search Queries », KDD 2021</a> (Google) replay a table of rewrites on voice search queries, with no audio. The rewrites come from users: a spoken query that got no click, followed within 60 s by a query that got one, is taken as « the speech-to-text model wrote X, the user meant Y ». The table is stored as key and value pairs and looked up at run time with no added delay.</p>
+    <p>A pair is replayed only when the two queries are close in sound (an edit distance on their phonemes below a threshold) and when Y followed X in at least 10 or 20% of the times X was seen. The authors chose very high precision over coverage, since a wrong rewrite of a query is intrusive, and still added a way for the user to go back to the original transcription. The rewrites apply to 1.76% of queries. On those, the rewrite is closer to what the user typed next than both the original query and a trained rewriting model: <b>BLEU</b>, a score from 0 to 1 of how many runs of words a text shares with a reference text, is 0.79 against 0.59 for the trained model on the same queries. The paper reports clicks and abandoned queries, and no WER.</p>
+    <p>Mondegreen keeps its precision with filters the correction memory replaces by the mark: closeness in sound, and how often the same correction was made. A query never corrected before gets nothing, as an error never marked gets nothing from the correction memory.</p>
+  </div>
+
+  <div class="tab-panel" hidden>
+    <p><a href="https://arxiv.org/abs/2508.17796">Liu, Peng and Chng, arXiv 2508.17796, 2025</a>, the Whisper paper of section 11, put into the prefix tree, next to each keyterm, extra keyterm variants spelled as Whisper tends to mishear the keyterm, generated from synthetic speech. When the best hypothesis ends on such a variant, it is written back as the keyterm. On LibriSpeech test-other with 1,000 distractor keyterms, this takes the cut in B-WER from 40% to 44%.</p>
+    <p>A marked rewrite has the same shape as one of those variants: X is a form Whisper wrote for keyterm Y. Entered as a path of the prefix tree that leads to Y, it would receive the boosting weight while Whisper writes, and Y would be written back. No paper measures variants that come from human corrections.</p>
+  </div>
+</div>
+
+<p>Code exists for the replay alone, as a table of rewrites written by hand. None collects rewrites from corrections or carries a mark.</p>
+
+<table>
+  <thead><tr><th>code</th><th>what it replays</th><th>where it runs</th></tr></thead>
+  <tbody>
+    <tr><td><a href="https://developers.deepgram.com/docs/find-and-replace">Deepgram <code>replace</code></a></td><td><code>replace=x:y</code>, one parameter per rewrite, applied to the transcript; 200 rewrites suggested at most</td><td>Deepgram's hosted API</td></tr>
+    <tr><td><a href="https://www.assemblyai.com/docs/speech-to-text/pre-recorded-audio/custom-spelling">AssemblyAI <code>custom_spelling</code></a></td><td><code>{"from": [x1, x2], "to": y}</code>, several forms to one spelling</td><td>AssemblyAI's hosted API</td></tr>
+    <tr><td><a href="https://github.com/vi3k6i5/flashtext">flashtext <code>KeywordProcessor</code></a></td><td><code>add_keyword(x, y)</code> then <code>replace_keywords(text)</code>: every X replaced by its Y as whole words, in one pass over the text</td><td>Python, CPU</td></tr>
+  </tbody>
+</table>
+
+<div class="callout"><div class="label">gaps</div>
+<p>No paper measures a correction memory on Whisper, on French, or with a lexicon and distractor keyterms. The closest measure of replay at scale, Mondegreen, rewrites whole queries and reports search clicks. What the correction memory gains on Ultron depends on how many errors repeat and get marked, which only the exercises can show.</p></div>
+
+<script>
+(function () {
+  const D = {
+    "new words": [16.6, 14.3],
+    "+ pronunciations": [16.4, 13.8],
+    "+ phrases of the session": [16.3, 12.0]
+  };
+  const base = 18.4, max = 20;
+  const ctl = document.getElementById("cl-ctl"), bars = document.getElementById("cl-bars");
+  let cur = "+ phrases of the session";
+  function bar(n, v, c) { return `<div class="cl-bar"><span>${n}</span><div class="b ${c}" style="width:${v / max * 100}%"></div><span class="v">${v.toFixed(1)}</span></div>`; }
+  function draw() {
+    ctl.innerHTML = Object.keys(D).map(k => `<button aria-pressed="${k === cur}">${k}</button>`).join("");
+    [...ctl.children].forEach(b => b.onclick = () => { cur = b.textContent; draw(); });
+    const [i, a] = D[cur];
+    bars.innerHTML = bar("no learning", base, "") + bar("while learning", i, "inc") + bar("after learning", a, "aft");
+  }
+  draw();
+})();
+</script>
