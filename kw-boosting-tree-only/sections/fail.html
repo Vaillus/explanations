@@ -1,0 +1,275 @@
+<link rel="stylesheet" href="../frame/tokens.css"><script src="../frame/frame.js"></script><style>
+  .fl-wrap { display: flex; flex-direction: column; gap: 12px; }
+  .fl-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .fl-bar button { font: inherit; font-size: var(--fs-small); border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 12px; padding: 2px 12px; cursor: pointer; }
+  .fl-bar button[aria-pressed=true] { border-color: var(--accent); color: var(--accent); }
+  .fl-bar button:disabled { opacity: .4; cursor: default; }
+  .fl-bar .sp { flex: 1; }
+  .fl-row { display: flex; flex-direction: column; gap: 4px; }
+  .fl-toks { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 2em; font-size: var(--fs-small); }
+  .fl-tok { font-family: var(--mono); padding: 2px 8px; border-radius: 4px; background: var(--raised); color: var(--ink); white-space: nowrap; }
+  .fl-tok.in { background: transparent; color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .fl-tok.gone { color: var(--muted); text-decoration: line-through; background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
+  .fl-tok.wait { background: transparent; color: var(--danger); box-shadow: inset 0 0 0 1.5px var(--danger); }
+  .fl-tok.wait.retry { color: var(--warn); box-shadow: inset 0 0 0 1.5px var(--warn); }
+  .fl-tok .r { margin-left: 6px; }
+  .fl-tok .got { color: var(--ok); }
+  .fl-tok .none { color: var(--ink-dim); }
+  .fl-note { font-size: var(--fs-label); color: var(--ink-dim); }
+  .fl-empty { font-size: var(--fs-small); color: var(--ink-dim); font-style: italic; }
+  .fl-tree { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 4px 0; }
+  .fl-svg { width: 100%; height: auto; display: block; }
+  .fl-svg text { font-family: var(--mono); font-size: 12px; fill: var(--ink-dim); }
+  .fl-svg text.next { fill: var(--ok); font-weight: bold; }
+  .fl-svg text.lk { fill: var(--accent); font-size: 11px; }
+  .fl-svg .edge { stroke: var(--line); stroke-width: 1.5; fill: none; }
+  .fl-svg .edge.path { stroke: var(--accent); stroke-width: 3; }
+  .fl-svg .node { fill: var(--raised); stroke: var(--line); }
+  .fl-svg .node.end { fill: var(--ok); stroke: var(--ok); }
+  .fl-svg .ring { fill: none; stroke: var(--accent); stroke-width: 3; }
+  .fl-svg .link { stroke: var(--muted); stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; }
+  .fl-svg .link.on { stroke: var(--accent); stroke-width: 2.5; }
+  .fl-svg .ah { fill: var(--muted); }
+  .fl-svg .ah.on { fill: var(--accent); }
+  .fl-msg { font-size: var(--fs-small); min-height: 4.5em; }
+  .fl-list { position: relative; display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-label); max-width: 40rem; }
+  .fl-zline { position: absolute; top: 0; bottom: calc(2.7em + 1px); width: 1px; background: var(--ink-dim); pointer-events: none; }
+  .fl-axis { position: relative; height: 1.3em; border-top: 1px solid var(--line); color: var(--ink-dim); }
+  .fl-axis span { position: absolute; top: 2px; transform: translateX(-50%); }
+  .fl-axis span.zero { color: var(--ink); font-weight: bold; }
+  .fl-atitle { line-height: 1.4em; text-align: center; color: var(--ink-dim); }
+  .fl-r { display: grid; grid-template-columns: 7.5em 1fr 4.2em; gap: 6px; align-items: center; }
+  .fl-r .tok { white-space: nowrap; color: var(--ink-dim); }
+  .fl-r.on .tok { color: var(--ok); font-weight: bold; }
+  .fl-r .val { text-align: right; color: var(--ink-dim); }
+  .fl-r.on .val { color: var(--ok); }
+  .fl-r.pick .tok::after { content: " ✓"; color: var(--ink); }
+  .fl-track { position: relative; height: 10px; background: var(--raised); }
+  .fl-track .lp { position: absolute; top: 0; bottom: 0; left: 0; background: var(--muted); opacity: .55; }
+  .fl-track .w { position: absolute; top: 0; bottom: 0; background: var(--ok); }
+</style>
+
+<p>A hypothesis's tree position stands for its <b>current match</b>: its last tokens, the ones that spell the path from the root to the position's node, so the start of a keyterm. At each decoding step the new token either continues that match, by a transition, or breaks it. This section is about the break, in one case: the tokens of the broken match end on the start of another keyterm. Sending the position back to the root would forget them, and that other keyterm would get no boosting weight. The <b>failure link</b> says where the position goes instead.</p>
+
+<figure>
+<div class="panel fl-wrap">
+  <div class="fl-bar">
+    <span class="label">failure links</span>
+    <button id="fl-with" aria-pressed="true">with</button>
+    <button id="fl-without" aria-pressed="false">without</button>
+    <span class="sp"></span>
+    <button id="fl-reset">⟲ restart</button>
+    <button id="fl-prev">◀ back</button>
+    <button id="fl-next">next ▶</button>
+  </div>
+  <div class="fl-row">
+    <div class="label">hypothesis · every token written, and what it received</div>
+    <div class="fl-toks" id="fl-hyp"></div>
+  </div>
+  <div class="fl-row">
+    <div class="label">current match · the tokens the tree position stands for</div>
+    <div class="fl-toks" id="fl-match"></div>
+  </div>
+  <div class="fl-tree">
+    <svg class="fl-svg" id="fl-svg" viewBox="0 0 760 290" role="img" aria-label="Prefix tree with the hypothesis's tree position"></svg>
+  </div>
+  <div class="fl-row">
+    <div class="label" id="fl-sclabel"></div>
+    <div class="fl-list" id="fl-scores"></div>
+  </div>
+  <div class="fl-msg" id="fl-msg"></div>
+</div>
+<figcaption>Keyterms in the tree: « Leclerc », « Leclerc XLR », « rue de Rivoli », « rue de Rennes », « de Lattre ». The ring is the tree position. The score panel shows one decoding step on a vocabulary cut down to ten tokens: grey bar, Whisper's log-probability; green extension, the boosting weight, w = 1.5; ✓, the token beam search writes. Its green tokens are the ones green on the tree. The dashed arrow is the failure link of <code>rue·de</code>; every other node's failure link leads to the root and is not drawn. The position follows a failure link only after the token is written.</figcaption>
+</figure>
+
+<p>The position moves only once beam search has written the token, scored from the old position. On a break, the position drops the oldest tokens of the current match until what is left is a path from the root, then tries the token again from that node. The failure link of each node stores in advance where that dropping ends: the node whose path from the root is the longest ending of the node's own path. For <code>rue·de</code>, whose path is <code>" rue" " de"</code>, that ending is <code>" de"</code>, so the link points to <code>de</code>. When the token is still not a child at the node the link leads to, the position follows that node's failure link in turn, down to the root at most. Only the current match shrinks: the hypothesis keeps every token it wrote.</p>
+
+<p>With failure links, the boosted tokens at a position are the children of its node and the children of every node its failure links lead to. That chain always ends at the root, which is why the children of the root are boosted from any position, and why <code>" L"</code> is already green at <code>rue·de</code> and wins the step that writes it.</p>
+
+<p>Adding these links to a prefix tree is the <b>Aho-Corasick</b> algorithm (Aho and Corasick, « Efficient string matching: an aid to bibliographic search », Communications of the ACM, 1975), built so that every entry of a list is found in one pass over a text. The boosting-tree libraries of section 12 build their tree with it. Most failure links lead to the root, since a token that breaks a match usually starts no keyterm. The links to inner nodes matter when keyterms overlap, as street names sharing « de », « du » or « rue » do.</p>
+
+<script>
+(function () {
+  const K = [
+    [" Le", "c", "ler", "c"],
+    [" Le", "c", "ler", "c", " X", "LR"],
+    [" le", "c", "ler", "c"],
+    [" rue", " de", " Riv", "oli"],
+    [" rue", " de", " R", "ennes"],
+    [" de", " L", "att", "re"]
+  ];
+  const root = { tok: "root", kids: [], end: false, depth: 0, key: "" };
+  const byKey = { "": root };
+  K.forEach(toks => {
+    let n = root;
+    toks.forEach((t, d) => {
+      let c = n.kids.find(x => x.tok === t);
+      if (!c) { c = { tok: t, kids: [], end: false, depth: d + 1, parent: n, key: n.key + "|" + t }; n.kids.push(c); byKey[c.key] = c; }
+      n = c;
+    });
+    n.end = true;
+  });
+  // failure links, computed breadth first as Aho-Corasick does
+  root.fail = root;
+  const queue = [];
+  root.kids.forEach(c => { c.fail = root; queue.push(c); });
+  while (queue.length) {
+    const n = queue.shift();
+    n.kids.forEach(c => {
+      let f = n.fail, m;
+      while (!(m = f.kids.find(x => x.tok === c.tok)) && f !== root) f = f.fail;
+      c.fail = m && m !== c ? m : root;
+      queue.push(c);
+    });
+  }
+  let row = 0;
+  (function lay(n) {
+    if (!n.kids.length) { n.y = row++; return; }
+    n.kids.forEach(lay);
+    n.y = (n.kids[0].y + n.kids[n.kids.length - 1].y) / 2;
+  })(root);
+  const X = d => 30 + d * 115, Y = r => 30 + r * 55;
+  const P = (...t) => t.length ? "|" + t.join("|") : "";
+  const q = s => JSON.stringify(s);
+  const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+  // Each step: tok = token written at this step (null when the step only moves the position);
+  // got = what the last token received (true: w, false: nothing);
+  // pos = tree position; gone = tokens just dropped from the current match;
+  // wait = the token not yet placed in the tree ("bad": not a child, "retry": tried again);
+  // fl = the failure link is being followed;
+  // sc = the decoding step the score panel shows: [position it is scored from, token written,
+  //      done (the token is already in the hypothesis)], or null.
+  const START = [
+    { pos: P(), sc: [P(), " direction"], msg: "Before the first token, the position is the root and the current match is empty. The score panel shows the next decoding step: the root's children are boosted, and the audio still favours " + q(" direction") + "." },
+    { tok: " direction", got: false, pos: P(), sc: [P(), " rue"], msg: q(" direction") + " is not a child of the root: it starts no keyterm. The position stays at the root, the current match stays empty, and the token got nothing. At the next step, " + q(" rue") + " gets w and overtakes " + q(" la") + "." },
+    { tok: " rue", got: true, pos: P(" rue"), sc: [P(" rue"), " de"], msg: q(" rue") + " is a child of the root: transition to rue. The current match is " + q(" rue") + ", and the token got w." },
+    { tok: " de", got: true, pos: P(" rue", " de"), sc: [P(" rue", " de"), " L"], msg: q(" de") + " is a child of rue: transition to rue·de. The current match is " + q(" rue") + " " + q(" de") + ", a tail of the hypothesis. The next decoding step is scored from rue·de." }
+  ];
+  const WITH = START.concat([
+    { tok: " L", got: true, pos: P(" rue", " de"), wait: "bad", sc: [P(" rue", " de"), " L", true], msg: "1 · At rue·de, the boosted tokens are the node's children " + q(" Riv") + " and " + q(" R") + ", the child " + q(" L") + " of de, where the failure link of rue·de leads, and the root's children. Beam search writes " + q(" L") + ", the best score with the audio. Only then does the position move. Since " + q(" L") + " is not a child of rue·de, the match breaks." },
+    { tok: null, got: true, pos: P(" de"), gone: [" rue"], wait: "retry", fl: true, sc: [P(" rue", " de"), " L", true], msg: "2 · Drop the oldest token of the current match, " + q(" rue") + ". What is left, " + q(" de") + ", is a path from the root, the start of « de Lattre ». The position follows the failure link of rue·de to de, which is the same move. Nothing is scored again, and the score panel still shows the step that wrote " + q(" L") + "." },
+    { tok: null, got: true, pos: P(" de", " L"), sc: [P(" de", " L"), "att"], msg: "3 · Try " + q(" L") + " again from de. It is a child: transition to de·L. The current match is " + q(" de") + " " + q(" L") + ", and the next decoding step is scored from de·L." },
+    { tok: "att", got: true, pos: P(" de", " L", "att"), sc: [P(" de", " L", "att"), "re"], msg: q("att") + " is a child of de·L: transition, w." },
+    { tok: "re", got: true, pos: P(" de", " L", "att", "re"), sc: null, msg: q("re") + " ends « de Lattre »: the keyterm is complete, and all its tokens got w." }
+  ]);
+  const WITHOUT = START.concat([
+    { tok: " L", got: false, pos: P(" rue", " de"), wait: "bad", sc: [P(" rue", " de"), " L", true], msg: "1 · Without failure links, the boosted tokens at rue·de are " + q(" Riv") + ", " + q(" R") + " and the root's children. " + q(" L") + " keeps its log-probability, and beam search still writes it, by a narrow margin over " + q(" Riv") + ". Since " + q(" L") + " is not a child of rue·de, the match breaks." },
+    { tok: null, got: false, pos: P(), gone: [" rue", " de"], sc: [P(), "att"], msg: "2 · With no failure link, the whole current match is dropped and the position goes back to the root. " + q(" L") + " is not a child of the root, so the position stays there. The next decoding step is scored from the root." },
+    { tok: "att", got: false, pos: P(), sc: [P(), "re"], msg: q("att") + " is not a child of the root: the position stays there, nothing received." },
+    { tok: "re", got: false, pos: P(), sc: null, msg: "« de Lattre » is written, but its last three tokens got nothing. Had beam search been about to prune this hypothesis, nothing would have lifted it." }
+  ]);
+
+  // Whisper's log-probabilities on a ten-token vocabulary, per decoding step, keyed by the token written
+  const VOC = [" direction", " rue", " de", " Riv", " R", " L", " Le", "att", "re", " la"];
+  const W = 1.5, MIN = -8, MAX = 2;
+  const LP = {
+    " direction": { " direction": -0.5, " rue": -3.0, " de": -3.0, " Riv": -7.0, " R": -6.0, " L": -6.0, " Le": -4.0, "att": -7.5, "re": -7.5, " la": -2.5 },
+    " rue": { " direction": -6.0, " rue": -1.9, " de": -2.8, " Riv": -7.0, " R": -5.5, " L": -6.0, " Le": -3.5, "att": -7.5, "re": -7.5, " la": -1.2 },
+    " de": { " direction": -6.0, " rue": -5.0, " de": -0.6, " Riv": -6.5, " R": -4.5, " L": -5.0, " Le": -4.0, "att": -7.0, "re": -7.0, " la": -2.5 },
+    " L": { " direction": -7.0, " rue": -5.0, " de": -4.0, " Riv": -2.5, " R": -2.8, " L": -0.9, " Le": -3.5, "att": -6.0, "re": -7.0, " la": -2.0 },
+    "att": { " direction": -7.0, " rue": -6.0, " de": -5.0, " Riv": -6.0, " R": -6.0, " L": -6.0, " Le": -6.0, "att": -0.3, "re": -4.0, " la": -4.0 },
+    "re": { " direction": -7.0, " rue": -6.0, " de": -5.0, " Riv": -6.0, " R": -6.0, " L": -6.0, " Le": -6.0, "att": -5.0, "re": -0.2, " la": -4.0 }
+  };
+
+  let mode = "with", i = 0;
+  const steps = () => mode === "with" ? WITH : WITHOUT;
+  const svg = document.getElementById("fl-svg");
+  const pathToks = n => { const t = []; for (; n && n !== root; n = n.parent) t.unshift(n.tok); return t; };
+
+  function boostedKeys(from) {
+    const next = new Set();
+    if (mode === "with") { let n = from; while (true) { n.kids.forEach(c => next.add(c.key)); if (n === root) break; n = n.fail; } }
+    else { from.kids.forEach(c => next.add(c.key)); root.kids.forEach(c => next.add(c.key)); }
+    return next;
+  }
+  const pct = v => ((v - MIN) / (MAX - MIN) * 100).toFixed(1) + "%";
+  const FR = (0 - MIN) / (MAX - MIN);
+  function scores(sc) {
+    const lab = document.getElementById("fl-sclabel"), box = document.getElementById("fl-scores");
+    if (!sc) { lab.textContent = "score of each token"; box.innerHTML = `<span class="fl-empty">(the next decoding steps are not shown)</span>`; return; }
+    const [from, pick, done] = sc;
+    const name = from ? from.slice(1).split("|").map(t => t.trim()).join("·") : "root";
+    lab.textContent = (done ? "score of each token at the step that wrote " + q(pick) : "score of each token at the next decoding step") + " · scored from " + name;
+    const bt = new Set([...boostedKeys(byKey[from])].map(k => byKey[k].tok)), lp = LP[pick];
+    const ticks = [-8, -6, -4, -2, 0, 2].map(v => `<span class="${v === 0 ? "zero" : ""}" style="left:${pct(v)}">${v}</span>`).join("");
+    box.innerHTML = VOC.map(t => {
+      const on = bt.has(t), v = on ? lp[t] + W : lp[t];
+      const wbar = on ? `<div class="w" style="left:${pct(lp[t])};width:calc(${pct(v)} - ${pct(lp[t])})"></div>` : "";
+      return `<div class="fl-r ${on ? "on" : ""} ${t === pick ? "pick" : ""}"><span class="tok">${esc(q(t))}</span><div class="fl-track"><div class="lp" style="width:${pct(lp[t])}"></div>${wbar}</div><span class="val">${v.toFixed(1)}</span></div>`;
+    }).join("") + `<div class="fl-r"><span></span><div class="fl-axis">${ticks}</div><span></span></div>
+      <div class="fl-r"><span></span><span class="fl-atitle">log probability</span><span></span></div>
+      <div class="fl-zline" style="left:calc(7.5em + 6px + (100% - 7.5em - 4.2em - 12px) * ${FR})"></div>`;
+  }
+
+  function draw() {
+    const S = steps(), s = S[i], cur = byKey[s.pos];
+    const onPath = new Set(); for (let n = cur; n && n !== root; n = n.parent) onPath.add(n.key);
+    const next = boostedKeys(s.sc ? byKey[s.sc[0]] : cur);
+
+    // tree
+    let g = `<defs><marker id="fl-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah ${s.fl ? "on" : ""}" d="M0,0 L10,5 L0,10 z"/></marker></defs>`;
+    (function edges(n) {
+      n.kids.forEach(c => {
+        g += `<path class="edge ${onPath.has(c.key) ? "path" : ""}" d="M${X(n.depth)},${Y(n.y)} C${X(n.depth) + 55},${Y(n.y)} ${X(c.depth) - 55},${Y(c.y)} ${X(c.depth)},${Y(c.y)}"/>`;
+        g += `<text class="${next.has(c.key) ? "next" : ""}" text-anchor="middle" x="${(X(n.depth) + X(c.depth)) / 2}" y="${(Y(n.y) + Y(c.y)) / 2 - 6}">${esc(q(c.tok))}</text>`;
+        edges(c);
+      });
+    })(root);
+    if (mode === "with") {
+      Object.values(byKey).forEach(a => {
+        if (a === root || a.fail === root) return;
+        const b = a.fail, x1 = X(a.depth), y1 = Y(a.y) + 8, x2 = X(b.depth) + 9, y2 = Y(b.y) - 4;
+        g += `<path class="link ${s.fl ? "on" : ""}" marker-end="url(#fl-ah)" d="M${x1},${y1} C${x1},${y1 + 50} ${x2 + 60},${y2} ${x2},${y2}"/>`;
+        g += `<text class="lk" x="${x1 + 8}" y="${y1 + 48}">failure link</text>`;
+      });
+    }
+    (function nodes(n) {
+      g += `<circle class="node ${n.end ? "end" : ""}" cx="${X(n.depth)}" cy="${Y(n.y)}" r="7"/>`;
+      if (n === root) g += `<text x="${X(0) - 4}" y="${Y(n.y) + 24}">root</text>`;
+      n.kids.forEach(nodes);
+    })(root);
+    g += `<circle class="ring" cx="${X(cur.depth)}" cy="${Y(cur.y)}" r="13"/>`;
+    svg.innerHTML = g;
+
+    // current match: dropped tokens struck out, then the path to the position, then the waiting token
+    const m = [];
+    (s.gone || []).forEach(t => m.push(`<span class="fl-tok gone">${esc(q(t))}</span>`));
+    pathToks(cur).forEach(t => m.push(`<span class="fl-tok in">${esc(q(t))}</span>`));
+    if (s.wait) {
+      const lastTok = S.slice(1, i + 1).filter(x => x.tok).pop().tok;
+      const node = pathToks(cur).join("").trim().replace(/ /g, "·") || "root";
+      const note = s.wait === "bad" ? "not a child of " + node : "tried again from " + node;
+      m.push(`<span class="fl-tok wait ${s.wait === "retry" ? "retry" : ""}">${esc(q(lastTok))}</span><span class="fl-note">← ${esc(note)}</span>`);
+    }
+    document.getElementById("fl-match").innerHTML = m.length ? m.join("") : `<span class="fl-empty">(empty: no keyterm in progress)</span>`;
+
+    // hypothesis: every token, those of the current match outlined
+    const toks = [];
+    S.slice(1, i + 1).forEach(x => { if (x.tok) toks.push({ t: x.tok, got: x.got }); else if (x.got !== null && x.got !== undefined) toks[toks.length - 1].got = x.got; });
+    const k = cur.depth, n = toks.length, endIn = s.wait ? n - 1 : n;
+    document.getElementById("fl-hyp").innerHTML = n
+      ? toks.map((x, j) => {
+          const r = x.got === true ? `<span class="r got">+w</span>` : x.got === false ? `<span class="r none">0</span>` : `<span class="r none">…</span>`;
+          const inMatch = j >= endIn - k && j < endIn;
+          return `<span class="fl-tok ${inMatch ? "in" : ""}">${esc(q(x.t))}${r}</span>`;
+        }).join("")
+      : `<span class="fl-empty">(nothing written yet)</span>`;
+
+    scores(s.sc);
+    document.getElementById("fl-msg").textContent = s.msg;
+    document.getElementById("fl-prev").disabled = i === 0;
+    document.getElementById("fl-next").disabled = i === S.length - 1;
+    document.getElementById("fl-with").setAttribute("aria-pressed", mode === "with");
+    document.getElementById("fl-without").setAttribute("aria-pressed", mode === "without");
+  }
+
+  document.getElementById("fl-next").onclick = () => { if (i < steps().length - 1) { i++; draw(); } };
+  document.getElementById("fl-prev").onclick = () => { if (i > 0) { i--; draw(); } };
+  document.getElementById("fl-reset").onclick = () => { i = 0; draw(); };
+  // both modes share their first steps, so switching keeps the step index
+  document.getElementById("fl-with").onclick = () => { mode = "with"; i = Math.min(i, WITH.length - 1); draw(); };
+  document.getElementById("fl-without").onclick = () => { mode = "without"; i = Math.min(i, WITHOUT.length - 1); draw(); };
+  draw();
+})();
+</script>

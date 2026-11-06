@@ -1,0 +1,67 @@
+<link rel="stylesheet" href="../frame/tokens.css"><script src="../frame/frame.js"></script><style>
+  .rk-wrap { display: flex; flex-direction: column; gap: 10px; }
+  .rk-ctl { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: var(--fs-small); }
+  .rk-ctl input[type=range] { width: min(100%, 14rem); accent-color: var(--accent); }
+  .rk-row { display: grid; grid-template-columns: minmax(0, 1fr) 4.5rem 4.5rem; gap: 8px; align-items: center; font-size: var(--fs-small); padding: 4px 8px; border-radius: 4px; border: 1px solid var(--line); }
+  .rk-row.win { border-color: var(--ok); }
+  .rk-row .t { white-space: pre-wrap; }
+  .rk-row .n { text-align: right; color: var(--ink-dim); }
+  .rk-row.win .n.s { color: var(--ok); }
+  .rk-head { font-size: var(--fs-label); color: var(--muted); }
+  .rk-list { display: flex; flex-direction: column; gap: 6px; }
+</style>
+
+<p>Beam search ranks hypotheses at two moments, on two different numbers. A score added to a hypothesis acts at each moment differently, so both are laid out here.</p>
+
+<p>Whisper ends a transcript by writing the <b>end-of-text token</b>. A hypothesis that writes it is finished: it leaves the beam and joins a pool of finished hypotheses, while beam search goes on with the others. In openai-whisper, decoding stops once the pool holds enough finished hypotheses (<a href="https://github.com/openai/whisper/blob/main/whisper/decoding.py#L320-L382"><code>BeamSearchDecoder.update</code></a>).</p>
+
+<p>Since finished hypotheses leave, the hypotheses left in the beam always have the same number of tokens: each one gained exactly one token per decoding step. Dividing their sums by a function of their length would leave their order unchanged, so pruning compares the sums as they are. Lengths differ only in the pool, among hypotheses that finished at different steps, and that is the one comparison where the length is divided out.</p>
+
+<ul>
+<li>The <b>pruning ranking</b> orders the extended hypotheses at each decoding step on their cumulative log-probability, as it is. openai-whisper sorts the extensions on that sum and keeps the beam-width best.</li>
+<li>The <b>final ranking</b> picks the transcript among the finished hypotheses, on scores divided by a function of their length: this is <b>length normalization</b>. Without it, the shortest transcript would win, since each token lowers the sum. The <b>length penalty</b> sets that function. In openai-whisper (<a href="https://github.com/openai/whisper/blob/main/whisper/decoding.py#L190-L213"><code>MaximumLikelihoodRanker</code></a>), with no length penalty set (the default) the sum is divided by the number of tokens; with a length penalty α it is divided by ((5 + length) / 6)<sup>α</sup>. Hugging Face transformers divides by length<sup>α</sup>, with α = 1 by default.</li>
+</ul>
+
+<figure>
+<div class="panel rk-wrap">
+  <div class="label">three finished hypotheses · made-up sums</div>
+  <div class="rk-ctl">
+    <label><input type="radio" name="rk-m" value="raw"> pruning ranking (sum as it is)</label>
+    <label><input type="radio" name="rk-m" value="len" checked> final ranking, openai-whisper default (sum ÷ length)</label>
+    <label><input type="radio" name="rk-m" value="gnmt"> final ranking with a length penalty α</label>
+  </div>
+  <div class="rk-ctl" id="rk-a-row"><span>α = <b id="rk-a-v">1.0</b></span><input type="range" id="rk-a" min="0" max="2" step="0.1" value="1"></div>
+  <div class="rk-list">
+    <div class="rk-row rk-head"><span>hypothesis (tokens)</span><span class="n">sum</span><span class="n">score</span></div>
+    <div id="rk-list" class="rk-list"></div>
+  </div>
+</div>
+<figcaption>Token counts are Whisper's real counts for these words, the end-of-text token left out; the sums are made up. α = 0 gives back the pruning ranking.</figcaption>
+</figure>
+
+<p>Two consequences matter for the rest of the report. A number added to a hypothesis's cumulative log-probability during decoding acts on both rankings: in full on every pruning that follows, and divided by the length on the final ranking. A number added only once a hypothesis is finished acts on the final ranking alone, since that hypothesis will never be pruned again.</p>
+
+<script>
+(function () {
+  const H = [
+    [" le char", 2, -3.0],
+    [" le char le clair avance", 6, -5.4],
+    [" le char Leclerc avance", 8, -6.4]
+  ];
+  const list = document.getElementById("rk-list"), a = document.getElementById("rk-a"),
+        av = document.getElementById("rk-a-v"), arow = document.getElementById("rk-a-row");
+  function mode() { return document.querySelector("input[name=rk-m]:checked").value; }
+  function draw() {
+    const m = mode(), al = parseFloat(a.value);
+    av.textContent = al.toFixed(1);
+    arow.style.display = m === "gnmt" ? "flex" : "none";
+    const sc = H.map(([t, L, s]) => m === "raw" ? s : m === "len" ? s / L : s / Math.pow((5 + L) / 6, al));
+    const best = sc.indexOf(Math.max(...sc));
+    list.innerHTML = H.map(([t, L, s], i) =>
+      `<div class="rk-row ${i === best ? "win" : ""}"><span class="t">${t} (${L})</span><span class="n">${s.toFixed(1)}</span><span class="n s">${sc[i].toFixed(2)}</span></div>`).join("");
+  }
+  document.querySelectorAll("input[name=rk-m]").forEach(r => r.onchange = draw);
+  a.oninput = draw;
+  draw();
+})();
+</script>

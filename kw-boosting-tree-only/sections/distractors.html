@@ -1,0 +1,98 @@
+<link rel="stylesheet" href="../frame/tokens.css"><script src="../frame/frame.js"></script><style>
+  .ds-wrap { display: flex; flex-direction: column; gap: 10px; }
+  .ds-ctl { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: var(--fs-small); }
+  .ds-ctl input[type=range] { width: min(100%, 18rem); accent-color: var(--accent); }
+  .ds-cases { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: 8px; }
+  .ds-case { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-small); padding: 8px; border-radius: 4px; border: 1px solid var(--line); }
+  .ds-case.good { border-color: var(--ok); }
+  .ds-case.bad { border-color: var(--danger); }
+  .ds-case .out { font-size: var(--fs-body); }
+  .ds-scale { position: relative; height: 34px; font-size: var(--fs-label); }
+  .ds-scale .ax { position: absolute; left: 0; right: 0; top: 14px; height: 2px; background: var(--line); }
+  .ds-scale .mk { position: absolute; top: 6px; width: 2px; height: 18px; }
+  .ds-scale .cur { position: absolute; top: 0; width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid var(--accent); transform: translateX(-6px); }
+  .ds-chart svg { width: 100%; height: auto; display: block; }
+  .ds-chart text { font-family: var(--mono); font-size: 11px; fill: var(--ink-dim); }
+</style>
+
+<p>A <b>false alarm</b> is a keyterm written in the transcript though it was not said. Distractor keyterms are its main source: each one is a path of the prefix tree that beam search can be pushed down, wherever Whisper hears something close to it. The size of the boosting weight sets the trade: large enough to lift the spoken keyterms over the cut, small enough to leave the paths of distractor keyterms below it.</p>
+
+<p>Three utterances on one lexicon holding « Leclerc » and « Serval ». In each, Whisper alone ranks a hypothesis made of ordinary words against the hypothesis that writes the keyterm; the boosting weight is added once per keyterm token (4 for <code>" Le" "c" "ler" "c"</code>, 2 for <code>" Serv" "al"</code>).</p>
+
+<figure>
+<div class="panel ds-wrap">
+  <div class="label">one boosting weight, three utterances · made-up log-probabilities</div>
+  <div class="ds-ctl"><span>boosting weight = <b id="ds-v">0.50</b></span><input type="range" id="ds-w" min="0" max="3.5" step="0.05" value="0.5"></div>
+  <div class="ds-scale" id="ds-scale"></div>
+  <div class="ds-cases" id="ds-cases"></div>
+</div>
+<figcaption>The ticks on the scale mark the boosting weight at which each utterance flips to the keyterm. Green: the transcript is right. Red: a keyterm is lost, or written where it was not said.</figcaption>
+</figure>
+
+<p>The first and third utterances flip at nearly the same weight, because « le clair » and « Leclerc » sound the same and Whisper scores them alike. No boosting weight recovers the one without writing the other: the usable range is the gap between the weight that recovers the spoken keyterms and the lowest weight at which some ordinary word flips. Each distractor keyterm adds paths that can close that gap, so a larger lexicon narrows it.</p>
+
+<h3 style="font-size: var(--fs-body)">What the papers measure as the lexicon grows</h3>
+
+<div class="tabs">
+  <div class="tab-row">
+    <button class="tab" aria-selected="true">100 to 2,000 distractors</button>
+    <button class="tab">no keyterm said</button>
+    <button class="tab">up to 20,000 keyterms</button>
+  </div>
+  <div class="tab-panel">
+    <figure class="ds-chart"><svg id="ds-svg" viewBox="0 0 520 220"></svg>
+    <figcaption>LibriSpeech test-other, a model of another family than Whisper, prefix tree applied by shallow fusion (row S2). Le et al. 2021, Table 1. Solid: with the prefix tree. Dashed: no biasing.</figcaption></figure>
+    <p>From 100 to 2,000 distractor keyterms per utterance, B-WER goes from 22.2 to 22.9 against 30.6 without the tree, and U-WER stays at 7.1 to 7.2 against 7.2. On test-clean: B-WER 9.4 to 9.6 against 14.1, U-WER 2.3 against 2.4. The gain shrinks slightly with the lexicon and the other words do not suffer.</p>
+  </div>
+  <div class="tab-panel" hidden>
+    <p>Zhao et al. 2019 (section 4.2, Table 3) gave 200 keyterms to a voice-search test set where none of them is said. With the boosting weight tuned on test sets where keyterms are said, WER on that set went from 6.9 to 12.5, an increase that biasing alone caused. With a lower boosting weight (and a change to the conditions under which biasing applies) it went to 7.3, while the sets with keyterms said kept most of their gain (for one of them, 37.0 without biasing, 7.3 at the full weight, 6.8 at the lower one).</p>
+  </div>
+  <div class="tab-panel" hidden>
+    <p>Andrusenko et al. 2025 (section IV.C) grew a list of 200 keyterms to 20,000 with generated terms, on a model of another family than Whisper with beam search. They lowered the boosting weight from 1 to 0.7 to limit false alarms. F-score went from 81.1 to 78.4 and WER from 9.86 to 11.42, still well ahead of no biasing (F-score 44.2, WER 12.83). The run time grew by about 5%.</p>
+  </div>
+</div>
+
+<p>On Whisper itself, the one paper of section 11 gives 1,000 distractor keyterms per utterance and reports U-WER at 1.87 to 1.91 against 1.94 without the tree: at that size and with withdrawal, the other words did not suffer.</p>
+
+<script>
+(function () {
+  const C = [
+    { said: "« le char Leclerc »", base: ["le char le clerc", -3.0], key: ["le char Leclerc", -5.5, 4], keySaid: true },
+    { said: "« le service est prêt »", base: ["le service est prêt", -1.0], key: ["le Serval est prêt", -7.0, 2], keySaid: false },
+    { said: "« le clair de lune »", base: ["le clair de lune", -1.2], key: ["Leclerc de lune", -4.4, 4], keySaid: false }
+  ];
+  const w = document.getElementById("ds-w"), v = document.getElementById("ds-v"), box = document.getElementById("ds-cases"), sc = document.getElementById("ds-scale");
+  const MAX = 3.5, pct = x => x / MAX * 100;
+  function draw() {
+    const x = parseFloat(w.value); v.textContent = x.toFixed(2);
+    let s = `<div class="ax"></div>`;
+    C.forEach((c, i) => {
+      const flip = (c.base[1] - c.key[1]) / c.key[2];
+      s += `<div class="mk" style="left:${pct(flip)}%;background:${c.keySaid ? "var(--ok)" : "var(--danger)"}"></div><span style="position:absolute;top:22px;left:${pct(flip)}%;transform:translateX(-50%)">${i + 1}</span>`;
+    });
+    s += `<div class="cur" style="left:${pct(x)}%"></div>`;
+    sc.innerHTML = s;
+    box.innerHTML = C.map((c, i) => {
+      const kb = c.key[1] + c.key[2] * x, pick = kb > c.base[1];
+      const right = pick === c.keySaid;
+      return `<div class="ds-case ${right ? "good" : "bad"}"><span class="label">${i + 1} · said ${c.said}</span>
+        <span>${c.base[0]}: ${c.base[1].toFixed(2)}</span><span>${c.key[0]}: ${c.key[1].toFixed(1)} + ${c.key[2]}×${x.toFixed(2)} = ${kb.toFixed(2)}</span>
+        <span class="out">→ ${pick ? c.key[0] : c.base[0]}</span></div>`;
+    }).join("");
+  }
+  w.oninput = draw; draw();
+
+  const N = [100, 500, 1000, 2000], B = [22.2, 22.5, 22.8, 22.9], U = [7.1, 7.1, 7.2, 7.2];
+  const X = i => 70 + i * 140, Y = val => 190 - val / 35 * 170;
+  let g = "";
+  [0, 10, 20, 30].forEach(t => g += `<line x1="60" x2="510" y1="${Y(t)}" y2="${Y(t)}" stroke="var(--line)"/><text x="30" y="${Y(t) + 4}">${t}</text>`);
+  g += `<line x1="60" x2="510" y1="${Y(30.6)}" y2="${Y(30.6)}" stroke="var(--accent)" stroke-dasharray="4 4"/><line x1="60" x2="510" y1="${Y(7.2)}" y2="${Y(7.2)}" stroke="var(--info)" stroke-dasharray="4 4"/>`;
+  g += `<polyline fill="none" stroke="var(--accent)" stroke-width="2" points="${B.map((b, i) => X(i) + "," + Y(b)).join(" ")}"/>`;
+  g += `<polyline fill="none" stroke="var(--info)" stroke-width="2" points="${U.map((b, i) => X(i) + "," + Y(b)).join(" ")}"/>`;
+  N.forEach((n, i) => { g += `<text x="${X(i) - 14}" y="210">N=${n}</text><circle cx="${X(i)}" cy="${Y(B[i])}" r="3" fill="var(--accent)"/><circle cx="${X(i)}" cy="${Y(U[i])}" r="3" fill="var(--info)"/>`; });
+  g += `<text x="330" y="${Y(B[3]) - 8}" style="fill:var(--accent)">B-WER, with the tree</text><text x="66" y="${Y(30.6) - 6}" style="fill:var(--accent)">B-WER, no biasing (30.6)</text>`;
+  g += `<text x="330" y="${Y(U[3]) - 8}" style="fill:var(--info)">U-WER, with the tree</text><text x="66" y="${Y(7.2) + 16}" style="fill:var(--info)">U-WER, no biasing (7.2): under the solid line</text>`;
+  g += `<line x1="300" x2="324" y1="10" y2="10" stroke="var(--ink-dim)" stroke-width="2"/><text x="330" y="14">with the prefix tree</text><line x1="300" x2="324" y1="26" y2="26" stroke="var(--ink-dim)" stroke-dasharray="4 4"/><text x="330" y="30">no biasing</text>`;
+  document.getElementById("ds-svg").innerHTML = g;
+})();
+</script>

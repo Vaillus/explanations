@@ -1,0 +1,52 @@
+<link rel="stylesheet" href="../frame/tokens.css"><script src="../frame/frame.js"></script><style>
+  .hk-wrap { display: flex; flex-direction: column; gap: 10px; }
+  .hk-ctl { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: var(--fs-small); }
+  .hk-ctl input[type=range] { width: min(100%, 16rem); accent-color: var(--accent); }
+  .hk-row { display: grid; grid-template-columns: minmax(0, 14rem) minmax(0, 1fr) 4rem; gap: 8px; align-items: center; font-size: var(--fs-small); }
+  .hk-bar { height: 14px; position: relative; background: var(--raised); border-radius: 3px; overflow: hidden; }
+  .hk-bar span { position: absolute; top: 0; bottom: 0; left: 0; background: var(--accent); }
+  .hk-bar span.lost { background: var(--warn); opacity: .5; }
+  .hk-row .n { text-align: right; }
+</style>
+
+<p>Both the boosting weight of section 6 and the withdrawal of section 8 reach Whisper through one hook: a <b>logits processor</b>, a function the decoder calls at each decoding step with the tokens of every hypothesis and the scores of every next token, and which may change those scores before beam search extends and prunes. The scores it receives are <b>logits</b>, Whisper's raw score for each token of the vocabulary, or the log-probabilities computed from them, depending on the decoder.</p>
+
+<p>A boosting tree written as a logits processor does this for each hypothesis, at each decoding step:</p>
+
+<ol class="steps">
+  <li>Find the hypothesis's tree position from its tokens. The decoder hands over each hypothesis's whole token sequence, so the position can be recomputed by walking the tree over the tokens written after the prompt (the special tokens that start every transcript, for the language and the task), which stays right when beam search reorders hypotheses or forks one into two.</li>
+  <li>Subtract from every next token's score the boosting weight accumulated at that position, or nothing when the position ends a keyterm, since a completed keyterm keeps its weight: any token that leads back to the root takes back what the hypothesis collected, the end-of-text token included.</li>
+  <li>Add back, for each token that leads to a node (a transition or a failure link), the accumulated weight of the node it lands on. With the root's children and the node's children, that is a handful of tokens per hypothesis.</li>
+</ol>
+
+<p>When the processor runs on log-probabilities, what it adds stays in the score as it is. When it runs on logits, the decoder normalizes them into log-probabilities afterwards, and the normalization takes back part of the boosting weight: if Whisper gives the boosted tokens together a probability <i>p</i>, a weight <i>w</i> added to their logits raises their log-probability by <i>w</i> − log(1 − <i>p</i> + <i>p</i>·e<sup><i>w</i></sup>), and lowers every other token by the second term.</p>
+
+<figure>
+<div class="panel hk-wrap">
+  <div class="hk-ctl"><span>probability of the boosted tokens <i>p</i> = <b id="hk-pv"></b></span><input type="range" id="hk-p" min="0.01" max="0.95" step="0.01" value="0.05"></div>
+  <div class="hk-ctl"><span>boosting weight <i>w</i> = <b id="hk-wv"></b></span><input type="range" id="hk-w" min="0.5" max="3" step="0.1" value="1.5"></div>
+  <div id="hk-rows" class="hk-wrap"></div>
+</div>
+<figcaption>Accent: the rise of a boosted token's log-probability. Faded: the part the normalization takes back.</figcaption>
+</figure>
+
+<p>A keyterm the boosting weight has to rescue is one Whisper gives a low probability, and there little is lost: at <i>p</i> = 0.05 and <i>w</i> = 1.5, the boosted token keeps 1.34 of 1.5. The loss grows with <i>p</i>, so added to the logits the boosting weight acts less on keyterms Whisper already writes, and a boosting weight tuned on one side of the normalization does not carry over to the other as it is.</p>
+
+<script>
+(function () {
+  const P = document.getElementById("hk-p"), Wd = document.getElementById("hk-w");
+  const pv = document.getElementById("hk-pv"), wv = document.getElementById("hk-wv"), rows = document.getElementById("hk-rows");
+  const MAX = 3;
+  function row(label, kept, w) {
+    const k = kept / MAX * 100, l = (w - kept) / MAX * 100;
+    return `<div class="hk-row"><span>${label}</span><div class="hk-bar"><span style="width:${k}%"></span><span class="lost" style="left:${k}%;width:${l}%"></span></div><span class="n">+${kept.toFixed(2)}</span></div>`;
+  }
+  function draw() {
+    const p = parseFloat(P.value), w = parseFloat(Wd.value);
+    pv.textContent = p.toFixed(2); wv.textContent = w.toFixed(1);
+    const kept = w - Math.log(1 - p + p * Math.exp(w));
+    rows.innerHTML = row("added to log-probabilities", w, w) + row("added to logits, then normalized", kept, w);
+  }
+  P.oninput = draw; Wd.oninput = draw; draw();
+})();
+</script>

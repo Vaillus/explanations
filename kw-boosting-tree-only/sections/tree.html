@@ -1,0 +1,90 @@
+<link rel="stylesheet" href="../frame/tokens.css"><script src="../frame/frame.js"></script><style>
+  .tr-wrap { display: flex; flex-direction: column; gap: 8px; }
+  .tr-svg { width: 100%; height: auto; display: block; }
+  .tr-svg text { font-family: var(--mono); font-size: 12px; fill: var(--ink); }
+  .tr-svg .tk { fill: var(--ink-dim); }
+  .tr-svg .tk.hi { fill: var(--accent); }
+  .tr-svg .edge { stroke: var(--line); stroke-width: 1.5; fill: none; }
+  .tr-svg .edge.hi { stroke: var(--accent); stroke-width: 2.5; }
+  .tr-svg .node { fill: var(--raised); stroke: var(--line); }
+  .tr-svg .node.end { fill: var(--ok); stroke: var(--ok); }
+  .tr-svg .node.hi { stroke: var(--accent); stroke-width: 2; }
+  .tr-keys { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tr-keys button { font: inherit; font-size: var(--fs-small); border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 12px; padding: 2px 10px; cursor: pointer; }
+  .tr-keys button[aria-pressed=true] { border-color: var(--accent); }
+  .tr-cap { font-size: var(--fs-small); min-height: 1.6em; }
+</style>
+
+<p>The <b>boosting tree</b> is the technique that biases Whisper while it writes: during beam search, it raises the score of the tokens that start or continue a keyterm, so that a hypothesis spelling a keyterm survives pruning. To know which tokens those are, it first puts the lexicon in a tree of tokens, built once before decoding.</p>
+
+<p>The tree is a <b>prefix tree</b> (a trie): each edge is a token, each path from the root spells the tokens of one keyterm, and keyterms that share their first tokens share the start of their path. A node marked as an end closes a complete keyterm. Below, a lexicon of five keyterms in Whisper's real tokens. « rue de Rivoli » and « rue de Rennes » share <code>" rue" " de"</code> and split after it. « Leclerc XLR » continues « Leclerc », so the node that closes « Leclerc » sits in the middle of a path, not at its end.</p>
+
+<figure>
+<div class="panel tr-wrap">
+  <div class="label">prefix tree · Whisper large-v3 tokens</div>
+  <div class="tr-keys" id="tr-keys"></div>
+  <svg class="tr-svg" id="tr-svg" viewBox="0 0 760 290" role="img" aria-label="Prefix tree of the keyterms"></svg>
+  <div class="tr-cap" id="tr-cap"></div>
+</div>
+<figcaption>Click a keyterm to light its path. Green nodes end a keyterm.</figcaption>
+</figure>
+
+<p>A keyterm has several token sequences. In Whisper's tokenizer the space before a word belongs to the word's first token, and case changes the tokens: <code>" Leclerc"</code> is <code>" Le" "c" "ler" "c"</code>, <code>" leclerc"</code> is <code>" le" "c" "ler" "c"</code>, and <code>" LECLERC"</code> is <code>" L" "EC" "LER" "C"</code>. Each <b>keyterm variant</b>, one token sequence a keyterm can take, goes into the tree as its own path, or the boosting tree never favours that form. The tree above holds two variants of « Leclerc »: their first tokens differ, so they start two paths from the root.</p>
+
+<script>
+(function () {
+  const K = [
+    { name: "Leclerc", toks: [" Le", "c", "ler", "c"] },
+    { name: "Leclerc XLR", toks: [" Le", "c", "ler", "c", " X", "LR"] },
+    { name: "leclerc (variant)", toks: [" le", "c", "ler", "c"] },
+    { name: "rue de Rivoli", toks: [" rue", " de", " Riv", "oli"] },
+    { name: "rue de Rennes", toks: [" rue", " de", " R", "ennes"] },
+    { name: "de Lattre", toks: [" de", " L", "att", "re"] }
+  ];
+  // build trie
+  const root = { tok: "root", kids: [], end: false, depth: 0 };
+  K.forEach((k, ki) => {
+    let n = root;
+    k.toks.forEach((t, d) => {
+      let c = n.kids.find(x => x.tok === t);
+      if (!c) { c = { tok: t, kids: [], end: false, depth: d + 1, keys: [] }; n.kids.push(c); }
+      c.keys = (c.keys || []).concat([ki]);
+      n = c;
+    });
+    n.end = true;
+  });
+  // layout: leaves get rows
+  let row = 0;
+  (function lay(n) {
+    if (!n.kids.length) { n.y = row++; return; }
+    n.kids.forEach(lay);
+    n.y = (n.kids[0].y + n.kids[n.kids.length - 1].y) / 2;
+  })(root);
+  const svg = document.getElementById("tr-svg"), X = d => 30 + d * 115, Y = r => 30 + r * 55;
+  let sel = 0;
+  function draw() {
+    let s = "";
+    (function edges(n) {
+      n.kids.forEach(c => {
+        const hi = c.keys.includes(sel);
+        s += `<path class="edge ${hi ? "hi" : ""}" d="M${X(n.depth)},${Y(n.y)} C${X(n.depth) + 55},${Y(n.y)} ${X(c.depth) - 55},${Y(c.y)} ${X(c.depth)},${Y(c.y)}"/>`;
+        s += `<text class="tk ${hi ? "hi" : ""}" text-anchor="middle" x="${(X(n.depth) + X(c.depth)) / 2}" y="${(Y(n.y) + Y(c.y)) / 2 - 6}">${JSON.stringify(c.tok)}</text>`;
+        edges(c);
+      });
+    })(root);
+    (function nodes(n) {
+      const hi = n.keys && n.keys.includes(sel);
+      s += `<circle class="node ${n.end ? "end" : ""} ${hi ? "hi" : ""}" cx="${X(n.depth)}" cy="${Y(n.y)}" r="7"/>`;
+      if (n.tok === "root") s += `<text x="${X(n.depth) - 4}" y="${Y(n.y) + 22}">root</text>`;
+      n.kids.forEach(nodes);
+    })(root);
+    svg.innerHTML = s;
+    document.getElementById("tr-cap").textContent =
+      `« ${K[sel].name} » = ${K[sel].toks.map(t => JSON.stringify(t)).join(" ")}: ${K[sel].toks.length} tokens.`;
+    document.querySelectorAll("#tr-keys button").forEach((b, i) => b.setAttribute("aria-pressed", i === sel));
+  }
+  document.getElementById("tr-keys").innerHTML = K.map(k => `<button>${k.name}</button>`).join("");
+  document.querySelectorAll("#tr-keys button").forEach((b, i) => b.onclick = () => { sel = i; draw(); });
+  draw();
+})();
+</script>

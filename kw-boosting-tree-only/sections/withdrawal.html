@@ -1,0 +1,259 @@
+<link rel="stylesheet" href="../frame/tokens.css"><script src="../frame/frame.js"></script><style>
+  .wd-wrap { display: flex; flex-direction: column; gap: 12px; }
+  .wd-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .wd-bar button { font: inherit; font-size: var(--fs-small); border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 12px; padding: 2px 12px; cursor: pointer; }
+  .wd-bar button[aria-pressed=true] { border-color: var(--accent); color: var(--accent); }
+  .wd-bar button:disabled { opacity: .4; cursor: default; }
+  .wd-bar .sp { flex: 1; }
+  .wd-row { display: flex; flex-direction: column; gap: 4px; }
+  .wd-toks { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; min-height: 2em; font-size: var(--fs-small); }
+  .wd-col { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+  .wd-tok { font-family: var(--mono); padding: 2px 8px; border-radius: 4px; background: var(--raised); color: var(--ink); white-space: nowrap; }
+  .wd-tok.last { box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .wd-ch { font-size: var(--fs-label); }
+  .wd-ch.plus { color: var(--ok); } .wd-ch.minus { color: var(--danger); } .wd-ch.zero { color: var(--ink-dim); }
+  .wd-hyprow { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; justify-content: space-between; }
+  .wd-blk { display: block; width: 22px; height: 13px; border-radius: 2px; }
+  .wd-blk.held { background: var(--ok); }
+  .wd-blk.lock { background: var(--accent); }
+  .wd-blk.gone { background: transparent; box-shadow: inset 0 0 0 1.5px var(--danger); }
+  .wd-total { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; padding: 4px 10px; border-left: 2px solid var(--line); }
+  .wd-total b { font-size: var(--fs-body); color: var(--ink); }
+  .wd-empty { font-size: var(--fs-small); color: var(--ink-dim); font-style: italic; }
+  .wd-tree { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 4px 0; }
+  .wd-svg { width: 100%; height: auto; display: block; }
+  .wd-svg text { font-family: var(--mono); font-size: 12px; fill: var(--ink-dim); }
+  .wd-svg text.acc { font-size: 11px; fill: var(--accent); }
+  .wd-svg text.lk { fill: var(--muted); font-size: 11px; }
+  .wd-svg text.mv { font-size: 13px; font-weight: bold; }
+  .wd-svg text.mv.minus { fill: var(--danger); } .wd-svg text.mv.zero { fill: var(--ink); } .wd-svg text.mv.plus { fill: var(--ok); }
+  .wd-svg .edge { stroke: var(--line); stroke-width: 1.5; fill: none; }
+  .wd-svg .edge.path { stroke: var(--accent); stroke-width: 3; }
+  .wd-svg .node { fill: var(--raised); stroke: var(--line); }
+  .wd-svg .node.end { fill: var(--ok); stroke: var(--ok); }
+  .wd-svg .ring { fill: none; stroke: var(--accent); stroke-width: 3; }
+  .wd-svg .link { stroke: var(--muted); stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; }
+  .wd-svg .move { fill: none; stroke-width: 2.5; }
+  .wd-svg .move.minus { stroke: var(--danger); } .wd-svg .move.zero { stroke: var(--ink); }
+  .wd-svg .ah.minus { fill: var(--danger); } .wd-svg .ah.zero { fill: var(--ink); }
+  .wd-msg { font-size: var(--fs-small); min-height: 3em; }
+  .wd-bars { display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-small); }
+  .wd-r { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: 8px; align-items: center; }
+  .wd-b { display: flex; flex-direction: column; gap: 2px; }
+  .wd-b div { height: 10px; border-radius: 2px; }
+  .wd-b .a { background: var(--muted); }
+  .wd-b .b { background: var(--warn); }
+  .wd-b .c { background: var(--ok); }
+  .wd-leg { display: flex; gap: 12px; flex-wrap: wrap; font-size: var(--fs-label); }
+  .wd-leg i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+</style>
+
+<p>The boosting weight is paid token by token, before Whisper knows whether the keyterm will be completed. Many keyterms start with a token that also starts ordinary words: « Leclerc » starts with <code>" Le"</code>, the French article at the head of a sentence. If the weight stayed, every hypothesis that writes « Le » and then any other word would keep it, and the search would favour hypotheses that start keyterms and never finish them. <b>Withdrawal</b> subtracts the boosting weights a hypothesis received for a keyterm it leaves incomplete, when its tree position falls back.</p>
+
+<p>Each node of the prefix tree stores the boosting weight accumulated from the root to it, and a token changes the hypothesis's score by the accumulated weight of the node it lands on minus that of the node it leaves. The weight a hypothesis holds is then always the accumulated weight of its tree position, plus the weight of the keyterms it completed: a completed keyterm keeps its weight, since the node that ends it falls back at no cost, as in TurboBias, NVIDIA's boosting tree run on the GPU (Andrusenko et al. 2025, whose results section 11 reads).</p>
+
+<figure>
+<div class="panel wd-wrap">
+  <div class="wd-bar" id="wd-cases"></div>
+  <div class="wd-bar">
+    <span class="sp"></span>
+    <button id="wd-reset">⟲ restart</button>
+    <button id="wd-prev">◀ back</button>
+    <button id="wd-next">next ▶</button>
+  </div>
+  <div class="wd-row">
+    <div class="label">hypothesis · each token, with the change it brought above it</div>
+    <div class="wd-hyprow"><div class="wd-toks" id="wd-hyp"></div><div class="wd-total"><span class="label">weight held</span><b id="wd-tot">0</b></div></div>
+  </div>
+  <div class="wd-tree">
+    <svg class="wd-svg" id="wd-svg" viewBox="0 0 760 300" role="img" aria-label="Prefix tree with the accumulated weight of each node and the hypothesis's tree position"></svg>
+  </div>
+  <div class="wd-msg" id="wd-msg"></div>
+</div>
+<figcaption>Same tree as section 7. Under each node, its accumulated weight; the ring is the tree position, green nodes end a keyterm. A red arrow is a fall back that withdraws weight, a dark one a move that changes nothing. The block over a token is the w that token received: green while the hypothesis holds it, blue once a completed keyterm keeps it, a red outline once it is withdrawn.</figcaption>
+</figure>
+
+<p>With withdrawal, the boosting weight still lifts « Le » during the steps in which beam search prunes, so a real « Leclerc » stays in the beam until its last token, and a hypothesis that turns out to write ordinary words ends with the score Whisper alone gives it.</p>
+
+<script>
+(function () {
+  const K = [
+    [" Le", "c", "ler", "c"],
+    [" Le", "c", "ler", "c", " X", "LR"],
+    [" le", "c", "ler", "c"],
+    [" rue", " de", " Riv", "oli"],
+    [" rue", " de", " R", "ennes"],
+    [" de", " L", "att", "re"]
+  ];
+  const root = { tok: "root", kids: [], end: false, depth: 0, key: "" };
+  const byKey = { "": root };
+  K.forEach(toks => {
+    let n = root;
+    toks.forEach((t, d) => {
+      let c = n.kids.find(x => x.tok === t);
+      if (!c) { c = { tok: t, kids: [], end: false, depth: d + 1, parent: n, key: n.key + "|" + t }; n.kids.push(c); byKey[c.key] = c; }
+      n = c;
+    });
+    n.end = true;
+  });
+  root.fail = root;
+  const queue = [];
+  root.kids.forEach(c => { c.fail = root; queue.push(c); });
+  while (queue.length) {
+    const n = queue.shift();
+    n.kids.forEach(c => {
+      let f = n.fail, m;
+      while (!(m = f.kids.find(x => x.tok === c.tok)) && f !== root) f = f.fail;
+      c.fail = m && m !== c ? m : root;
+      queue.push(c);
+    });
+  }
+  let row = 0;
+  (function lay(n) {
+    if (!n.kids.length) { n.y = row++; return; }
+    n.kids.forEach(lay);
+    n.y = (n.kids[0].y + n.kids[n.kids.length - 1].y) / 2;
+  })(root);
+  const X = d => 30 + d * 115, Y = r => 40 + r * 55;
+  const q = s => JSON.stringify(s);
+  const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const name = n => n === root ? "root" : (function () { const t = []; for (let m = n; m !== root; m = m.parent) t.unshift(m.tok.trim()); return t.join("·"); })();
+  const EOT = "<|endoftext|>";
+
+  // one move: where a token takes the position, and the change it brings, in units of w
+  function step(pos, tok) {
+    if (tok === EOT) return { to: root, ch: pos.end ? 0 : -pos.depth, how: "end", lock: pos.end ? pos.depth : 0 };
+    const kid = pos.kids.find(c => c.tok === tok);
+    if (kid) return { to: kid, ch: 1, how: "transition", lock: 0 };
+    let f = pos.fail, m;
+    while (!(m = f.kids.find(c => c.tok === tok)) && f !== root) f = f.fail;
+    const to = m || root;
+    // a completed keyterm keeps its weight: leaving its end node withdraws nothing of it
+    return { to, ch: pos.end ? to.depth : to.depth - pos.depth, how: f === root && !m ? "root" : "link", via: f, lock: pos.end ? pos.depth : 0 };
+  }
+  const fw = v => v === 0 ? "0" : (v > 0 ? "+" : "−") + (Math.abs(v) === 1 ? "" : Math.abs(v)) + "w";
+  const aw = d => d === 0 ? "0" : (d === 1 ? "" : d) + "w";
+
+  const CASES = [
+    { label: "« Leclerc char »", toks: [" Le", "c", "ler", "c", " char"], end: "« Leclerc » was completed, so its 4w stay: falling back from its end node withdraws nothing." },
+    { label: "« Le char avance »", toks: [" Le", " char", " av", "ance"], end: "Only « Le » was ever boosted, and it was taken back at the next token: the hypothesis holds no weight, and its score is the one Whisper alone gives." },
+    { label: "« Lecler char »", toks: [" Le", "c", "ler", " char"], end: "The match breaks three tokens into « Leclerc »: the one token " + q(" char") + " withdraws the 3w that « Le », « c » and « ler » received." },
+    { label: "« rue de Lattre »", toks: [" rue", " de", " L", "att", "re"], end: "« de Lattre » is complete and holds 4w: the w of « rue » was withdrawn at " + q(" L") + ", inside a token whose change was 0." },
+    { label: "« le char Le » + end", toks: [" le", " char", " Le", EOT], end: "The transcript ends inside « Le… »: the end-of-text token falls back to the root and withdraws the w, so the finished hypothesis holds nothing for a keyterm it never wrote." }
+  ];
+
+  function build(c) {
+    const S = [{ pos: root, held: [], tot: 0, msg: "Before the first token, the position is the root, whose accumulated weight is 0, and the hypothesis holds nothing." }];
+    let pos = root;
+    const done = [], locked = new Set(), ever = new Set();
+    c.toks.forEach((t, j) => {
+      const r = step(pos, t), from = pos;
+      // the tokens whose w a completed keyterm keeps: the last ones, those of the end node left
+      if (r.lock) for (let k = j - r.lock; k < j; k++) locked.add(k);
+      pos = r.to;
+      // the tokens whose w is held: the kept ones, and the current match, the last tokens spelling the tree position
+      const now = new Set(locked);
+      for (let k = j - pos.depth + 1; k <= j; k++) now.add(k);
+      now.forEach(k => ever.add(k));
+      done.push({ t, ch: r.ch });
+      const st = done.map((_, k) => locked.has(k) ? "lock" : now.has(k) ? "held" : ever.has(k) ? "gone" : "");
+      let msg;
+      const arith = `Change: ${aw(r.to.depth)} − ${aw(from.depth)} = ${fw(r.ch)}.`;
+      if (r.how === "transition") msg = `${q(t)} is a child of ${name(from)}: transition to ${name(r.to)}. ${arith}`;
+      else if (r.how === "end") msg = from.end ? `The end-of-text token falls back to the root from the end of a completed keyterm: nothing is withdrawn.` : `The end-of-text token is a child of no node: the position falls back from ${name(from)} (${aw(from.depth)}) to the root. Change: 0 − ${aw(from.depth)} = ${fw(r.ch)}.`;
+      else if (from.end) msg = `${q(t)} continues nothing from ${name(from)}, the end of « Leclerc »: the position falls back to ${name(r.to)}, at no cost, since the keyterm is complete. Change: 0.`;
+      else if (from === root) msg = `${q(t)} starts no keyterm: the position stays at the root. Change: 0.`;
+      else if (r.how === "root") msg = `${q(t)} continues no keyterm from ${name(from)}: the position falls back to the root. ${arith}${r.ch < 0 ? " What the hypothesis received for this start of a keyterm is withdrawn." : ""}`;
+      else msg = `${q(t)} is not a child of ${name(from)}; its failure link leads to ${name(r.via)}, where ${q(t)} is a child: the position lands on ${name(r.to)}. ${arith} The w of « rue » is withdrawn as the w of ${q(t)} is added.`;
+      if (j === c.toks.length - 1) msg += " " + c.end;
+      S.push({ pos, from, ch: r.ch, how: r.how, held: done.slice(), st, tot: now.size, msg });
+    });
+    return S;
+  }
+
+  let ci = 0, i = 0, S = build(CASES[0]);
+  const svg = document.getElementById("wd-svg");
+  const cases = document.getElementById("wd-cases");
+  cases.innerHTML = `<span class="label">said</span>` + CASES.map((c, k) => `<button data-k="${k}">${esc(c.label)}</button>`).join("");
+  cases.querySelectorAll("button").forEach(b => b.onclick = () => { ci = +b.dataset.k; S = build(CASES[ci]); i = 0; draw(); });
+
+  function draw() {
+    const s = S[i], cur = s.pos;
+    const onPath = new Set(); for (let n = cur; n && n !== root; n = n.parent) onPath.add(n.key);
+    let g = `<defs>${["minus", "zero"].map(k => `<marker id="wd-ah-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah ${k}" d="M0,0 L10,5 L0,10 z"/></marker>`).join("")}</defs>`;
+    (function edges(n) {
+      n.kids.forEach(c => {
+        g += `<path class="edge ${onPath.has(c.key) ? "path" : ""}" d="M${X(n.depth)},${Y(n.y)} C${X(n.depth) + 55},${Y(n.y)} ${X(c.depth) - 55},${Y(c.y)} ${X(c.depth)},${Y(c.y)}"/>`;
+        g += `<text text-anchor="middle" x="${(X(n.depth) + X(c.depth)) / 2}" y="${(Y(n.y) + Y(c.y)) / 2 - 6}">${esc(q(c.tok))}</text>`;
+        edges(c);
+      });
+    })(root);
+    Object.values(byKey).forEach(a => {
+      if (a === root || a.fail === root) return;
+      const b = a.fail, x1 = X(a.depth), y1 = Y(a.y) + 8, x2 = X(b.depth) + 9, y2 = Y(b.y) - 4;
+      g += `<path class="link" d="M${x1},${y1} C${x1},${y1 + 50} ${x2 + 60},${y2} ${x2},${y2}"/>`;
+      g += `<text class="lk" x="${x1 + 8}" y="${y1 + 48}">failure link</text>`;
+    });
+    (function nodes(n) {
+      g += `<circle class="node ${n.end ? "end" : ""}" cx="${X(n.depth)}" cy="${Y(n.y)}" r="7"/>`;
+      g += `<text class="acc" text-anchor="middle" x="${X(n.depth)}" y="${Y(n.y) + 22}">${n === root ? "root · 0" : aw(n.depth)}</text>`;
+      n.kids.forEach(nodes);
+    })(root);
+    // a move that is not a transition: an arrow from the node left to the node reached
+    if (s.from && s.how !== "transition" && s.from !== s.pos) {
+      const k = s.ch < 0 ? "minus" : "zero";
+      const x1 = X(s.from.depth), y1 = Y(s.from.y) - 10, x2 = X(s.pos.depth) + 6, y2 = Y(s.pos.y) - 12;
+      const cx = (x1 + x2) / 2, cy = Math.max(14, Math.min(y1, y2) - 34);
+      g += `<path class="move ${k}" marker-end="url(#wd-ah-${k})" d="M${x1},${y1} Q${cx},${cy} ${x2},${y2}"/>`;
+      g += `<text class="mv ${k}" text-anchor="middle" x="${cx}" y="${cy + 12}">${fw(s.ch)}</text>`;
+    }
+    g += `<circle class="ring" cx="${X(cur.depth)}" cy="${Y(cur.y)}" r="13"/>`;
+    svg.innerHTML = g;
+
+    // hypothesis: each token, the change it brought above it, and over it the state of its own w
+    const cols = s.held.map((x, j) => {
+      const cls = x.ch > 0 ? "plus" : x.ch < 0 ? "minus" : "zero";
+      return `<div class="wd-col"><span class="wd-blk ${s.st[j]}"></span><span class="wd-ch ${cls}">${fw(x.ch)}</span><span class="wd-tok ${j === s.held.length - 1 ? "last" : ""}">${esc(q(x.t))}</span></div>`;
+    });
+    document.getElementById("wd-tot").textContent = aw(s.tot);
+    document.getElementById("wd-hyp").innerHTML = cols.length ? cols.join("") : `<span class="wd-empty">(nothing written yet)</span>`;
+    document.getElementById("wd-msg").textContent = s.msg;
+    document.getElementById("wd-prev").disabled = i === 0;
+    document.getElementById("wd-next").disabled = i === S.length - 1;
+    cases.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.k === ci));
+  }
+  document.getElementById("wd-next").onclick = () => { if (i < S.length - 1) { i++; draw(); } };
+  document.getElementById("wd-prev").onclick = () => { if (i > 0) { i--; draw(); } };
+  document.getElementById("wd-reset").onclick = () => { i = 0; draw(); };
+  draw();
+})();
+</script>
+
+<h3 style="font-size: var(--fs-body)">At the end of the transcript</h3>
+
+<p>The last case of the player is a hypothesis that stops inside a keyterm. The end-of-text token is a child of no node, so treating it as one more token that falls back to the root withdraws what the hypothesis holds on that token's score. The icefall library does this in <a href="https://github.com/k2-fsa/icefall/blob/master/icefall/context_graph.py"><code>ContextGraph.finalize</code></a>, which subtracts the accumulated weight of the hypothesis's last position. In Whisper's beam search the extensions by the end-of-text token are sorted with the other extensions (section 4), so this withdrawal acts both when the hypothesis finishes and in the final ranking. Without it, a finished hypothesis keeps the weight of a keyterm it never completed.</p>
+
+<p>The reverse problem exists too. In a model that, like Whisper, writes until it writes an end token, the boosting weights given to keyterm tokens can outscore the end-of-text token, and the model keeps writing keyterm tokens after the speech has ended. TurboBias adds to the end-of-text token's score, at each step, the largest boosting weight the tree can give, plus the weight of a keyterm just completed, so that ending the transcript stays competitive (Andrusenko et al. 2025, section II.C).</p>
+
+<h3 style="font-size: var(--fs-body)">What withdrawal changed in a measured system</h3>
+
+<figure>
+<div class="panel wd-bars" id="wd-bars"></div>
+<figcaption>WER (%) on four test sets with a list of keyterms, a Google speech-to-text model of another family than Whisper, with a prefix tree over characters. Zhao et al., « Shallow-Fusion End-to-End Contextual Biasing », Interspeech 2019, Table 2, rows E0, E2 and E3. Withdrawal is called a « subtractive cost » there.</figcaption>
+</figure>
+
+<script>
+(function () {
+  const D = [["Songs", 19.6, 14.8, 8.1], ["Cnt-Real", 18.6, 12.5, 10.0], ["Cnt-TTS", 28.3, 24.2, 13.2], ["Apps", 13.0, 8.7, 5.8]];
+  const max = 30;
+  let s = `<div class="wd-leg"><span><i style="background:var(--muted)"></i>no biasing</span><span><i style="background:var(--warn)"></i>biasing, no withdrawal</span><span><i style="background:var(--ok)"></i>biasing with withdrawal</span></div>`;
+  D.forEach(([n, a, b, c]) => {
+    s += `<div class="wd-r"><span>${n}</span><div class="wd-b">
+      <div class="a" style="width:${a / max * 100}%" title="${a}"></div>
+      <div class="b" style="width:${b / max * 100}%" title="${b}"></div>
+      <div class="c" style="width:${c / max * 100}%" title="${c}"></div></div></div>
+      <div class="wd-r"><span></span><span style="color:var(--ink-dim)">${a} → ${b} → ${c}</span></div>`;
+  });
+  document.getElementById("wd-bars").innerHTML = s;
+})();
+</script>

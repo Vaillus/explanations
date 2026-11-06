@@ -1,0 +1,275 @@
+<link rel="stylesheet" href="../frame/tokens.css"><script src="../frame/frame.js"></script><style>
+  .bt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 14px; align-items: start; }
+  .bt-wrap { display: flex; flex-direction: column; gap: 12px; }
+  .bt-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: var(--fs-small); }
+  .bt-bar button { font: inherit; font-size: var(--fs-small); border: 1.5px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 12px; padding: 2px 12px; cursor: pointer; }
+  .bt-bar button:disabled { opacity: .4; cursor: default; }
+  .bt-dots { display: flex; gap: 6px; }
+  .bt-dots span { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+  .bt-dots span.on { background: var(--accent); }
+  .bt-svg { width: 100%; height: auto; display: block; }
+  .bt-svg text { font-family: var(--mono); font-size: 12px; fill: var(--ink-dim); }
+  .bt-svg text.hname { font-size: 11px; font-weight: bold; }
+  .bt-svg .edge { stroke: var(--line); stroke-width: 1.5; fill: none; }
+  .bt-svg .node { fill: var(--raised); stroke: var(--line); }
+  .bt-svg .node.end { fill: var(--ok); stroke: var(--ok); }
+  .bt-said { font-size: var(--fs-small); color: var(--ink); display: flex; flex-direction: column; gap: 4px; }
+  .bt-scores { display: flex; flex-direction: column; gap: 10px; }
+  .bt-list { position: relative; display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-label); }
+  .bt-zline { position: absolute; top: 0; bottom: calc(2.7em + 1px); width: 1px; background: var(--ink-dim); pointer-events: none; }
+  .bt-axis { position: relative; height: 1.3em; border-top: 1px solid var(--line); color: var(--ink-dim); }
+  .bt-axis span { position: absolute; top: 2px; transform: translateX(-50%); }
+  .bt-axis span.zero { color: var(--ink); font-weight: bold; }
+  .bt-atitle { line-height: 1.4em; text-align: center; color: var(--ink-dim); }
+  .bt-r { display: grid; grid-template-columns: 7.5em 1fr 4.2em; gap: 6px; align-items: center; }
+  .bt-r .tok { white-space: nowrap; color: var(--ink-dim); }
+  .bt-r.on .tok { color: var(--ok); font-weight: bold; }
+  .bt-r .val { text-align: right; color: var(--ink-dim); }
+  .bt-r.on .val { color: var(--ok); }
+  .bt-r.pick .tok::after { content: " ✓"; color: var(--ink); }
+  .bt-track { position: relative; height: 10px; background: var(--raised); }
+  .bt-track .lp { position: absolute; top: 0; bottom: 0; left: 0; background: var(--muted); opacity: .55; }
+  .bt-track .w { position: absolute; top: 0; bottom: 0; background: var(--ok); }
+  .bt-msg { font-size: var(--fs-small); min-height: 4.5em; }
+  .fu-wrap { display: flex; flex-direction: column; gap: 10px; }
+  .fu-ctl { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: var(--fs-small); }
+  .fu-ctl input[type=range] { width: min(100%, 16rem); accent-color: var(--accent); }
+  .fu-row { display: grid; grid-template-columns: minmax(0, 12rem) minmax(0, 1fr) 4rem; gap: 8px; align-items: center; font-size: var(--fs-small); }
+  .fu-bar { height: 14px; position: relative; background: var(--raised); border-radius: 3px; overflow: hidden; }
+  .fu-bar span { position: absolute; top: 0; bottom: 0; right: 0; background: var(--ink-dim); }
+  .fu-bar span.b { background: var(--accent); }
+  .fu-row.cut { opacity: .45; }
+  .fu-row .n { text-align: right; }
+  .fu-tag { font-size: var(--fs-label); }
+  .fu-formula { font-size: var(--fs-body); text-align: center; padding: 6px; }
+  .fu-said { font-size: var(--fs-small); color: var(--ink); }
+  .fu-beam { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: 8px; }
+  .fu-par { display: flex; justify-content: space-between; gap: 8px; padding: 4px 8px; border-radius: 4px; font-size: var(--fs-small); border: 1px solid var(--line); }
+  .fu-par.key { box-shadow: inset 3px 0 0 var(--accent); }
+  .fu-tok { white-space: pre; }
+  .fu-tok b { background: var(--raised); border-radius: 3px; padding: 0 2px; font-weight: normal; }
+  .fu-tok b.bt { color: var(--ok); font-weight: bold; }
+  .fu-num { color: var(--ink-dim); white-space: nowrap; }
+  .fu-ext { display: grid; grid-template-columns: minmax(0, 13rem) minmax(0, 1fr) 5.5rem; gap: 4px 8px; align-items: center; font-size: var(--fs-small); padding: 4px 8px; border-radius: 4px; border: 1px solid var(--line); }
+  .fu-ext.kept { border-color: var(--ok); }
+  .fu-ext.cut { opacity: .5; }
+  .fu-ext.cut .fu-tok { text-decoration: line-through; }
+  .fu-ext.key { box-shadow: inset 3px 0 0 var(--accent); }
+  .fu-ext .fu-sub { grid-column: 1 / -1; font-size: var(--fs-label); color: var(--ink-dim); }
+  .fu-ext .n { text-align: right; white-space: nowrap; }
+</style>
+
+<p>At each decoding step, Whisper gives a hypothesis a log-probability for every one of the 51,866 tokens of its vocabulary. The boosting tree adds to a handful of them the <b>boosting weight</b>, a fixed positive number, of the order of 1 in the papers and libraries that use it. Papers and libraries give it other names (bias weight, context score, hotwords score); the report calls it the boosting weight throughout.</p>
+
+<p>The tokens that get it depend on what the hypothesis has written so far, which the boosting tree keeps as the hypothesis's <b>tree position</b>: the node of the prefix tree its last tokens have reached. At the root, the hypothesis is inside no keyterm. The tree position fixes the <b>boosted tokens</b>, the tokens that get the boosting weight at the next decoding step: the children of its node, which continue the keyterm in progress, and the children of the root, which start a keyterm, since one can start anywhere in the transcript. Every other token keeps the log-probability Whisper gave it, the tokens deeper in the tree included.</p>
+
+<p>The player follows one hypothesis while Whisper writes « rue de Rivoli », on a tree of three keyterms and a vocabulary cut down to ten tokens.</p>
+
+<figure>
+<div class="panel bt-wrap">
+  <div class="bt-bar">
+    <button id="bt-prev">◀ previous</button>
+    <button id="bt-next">next ▶</button>
+    <div class="bt-dots" id="bt-dots"></div>
+    <span class="label" id="bt-step"></span>
+  </div>
+  <div class="bt-grid">
+    <div class="bt-wrap">
+      <div class="bt-said" id="bt-said"></div>
+      <svg class="bt-svg" id="bt-svg" viewBox="0 0 520 200" role="img" aria-label="A prefix tree of three keyterms with the tree position of the hypothesis and its boosted tokens"></svg>
+    </div>
+    <div class="bt-scores" id="bt-scores"></div>
+  </div>
+  <div class="bt-msg" id="bt-msg"></div>
+</div>
+<figcaption>Grey bar: the log-probability Whisper gives the token. Green extension: the boosting weight, w = 1.5. The vertical line marks 0, and ✓ marks the token the hypothesis writes. In the tree, the ring is the tree position, green token labels are its boosted tokens, and green nodes end a keyterm.</figcaption>
+</figure>
+
+<p>If the token a hypothesis writes is a child of the node at its tree position, the tree position makes a <b>transition</b>: it moves down to that child, as the ring does at each step of the player. A keyterm of four tokens thus collects the boosting weight four times once complete. When the hypothesis leaves a keyterm incomplete, what it collected for it is taken back.</p>
+
+<p>Beam search keeps several hypotheses at each decoding step, and each one keeps track of its own tree position, so the same token can be boosted for one hypothesis and not for another.</p>
+
+<p>Adding a score from outside the model to its log-probabilities at each decoding step, before pruning, without retraining the model, is called <b>shallow fusion</b>; the same mechanism adds the scores of a separate text-only model. It takes the form of a <b>log-linear score combination</b>, for a token <i>t</i> that extends a hypothesis:</p>
+
+<div class="fu-formula panel">score(<i>t</i>) = log P<sub>Whisper</sub>(<i>t</i> | audio, tokens so far) + λ · bias(<i>t</i>)</div>
+
+<p>For the boosting tree, λ is the boosting weight and bias(<i>t</i>) is 1 for a boosted token and 0 for any other token, except a token by which the hypothesis leaves a keyterm in progress, whose bias is negative so that what the hypothesis collected is taken back.</p>
+
+<p>The player follows one hypothesis choosing among its own next tokens. Pruning compares the hypotheses with each other, and that is where the boosting weight decides whether a keyterm stays in the beam. The figure replays step 4 of section 3, with a tree that holds « Leclerc » alone: the hypothesis that writes <code>" Le"</code> <code>"c"</code> gains the boosting weight twice, the one that writes <code>" Le"</code> then <code>" cl"</code> leaves the keyterm and gives its weight back, and the two others write no keyterm token.</p>
+
+<figure>
+<div class="panel fu-wrap">
+  <div class="label">step 4 of section 3 · beam width 2 · made-up log-probabilities</div>
+  <div class="fu-said"><span class="label">spoken</span> « le char Leclerc… » · <span class="label">tree</span> « Leclerc » alone, <code>" Le" "c" "ler" "c"</code></div>
+  <div class="fu-ctl"><span>boosting weight w = <b id="fu-v">0.00</b></span><input type="range" id="fu-w" min="0" max="1.5" step="0.05" value="0"></div>
+  <div class="label">the beam after step 3</div>
+  <div class="fu-beam" id="fu-beam"></div>
+  <div class="label">step 4 · each kept hypothesis extended, then the two best kept</div>
+  <div id="fu-rows" class="fu-wrap" style="gap:6px"></div>
+</div>
+<figcaption>Green tokens get the boosting weight; the left bar marks the hypotheses that started « Leclerc ». Bars show the cumulative score, grey for Whisper's sum, accent for the boosting weight held. Above w = 0.35, « Le c » outranks « le clair » and survives pruning.</figcaption>
+</figure>
+
+<script>
+(function () {
+  const K = [
+    [" rue", " de", " Riv", "oli"],
+    [" rue", " de", " R", "ennes"],
+    [" Le", "c", "ler", "c"]
+  ];
+  const VOC = [" rue", " Le", " de", " Riv", " R", "c", "oli", " la", " il", "<|endoftext|>"];
+  const W = 1.5, MIN = -8, MAX = 2;
+  const COL = ["var(--accent)", "var(--info)"];
+
+  const root = { tok: "root", kids: [], end: false, depth: 0, key: "" };
+  const byKey = { "": root };
+  K.forEach(toks => {
+    let n = root;
+    toks.forEach((t, d) => {
+      let c = n.kids.find(x => x.tok === t);
+      if (!c) { c = { tok: t, kids: [], end: false, depth: d + 1, parent: n, key: n.key + "|" + t }; n.kids.push(c); byKey[c.key] = c; }
+      n = c;
+    });
+    n.end = true;
+  });
+  let row = 0;
+  (function lay(n) {
+    if (!n.kids.length) { n.y = row++; return; }
+    n.kids.forEach(lay);
+    n.y = (n.kids[0].y + n.kids[n.kids.length - 1].y) / 2;
+  })(root);
+  const X = d => 24 + d * 116, Y = r => 40 + r * 60;
+  const q = s => JSON.stringify(s);
+  const pname = key => key === "" ? "root" : key.slice(1).split("|").map(t => t.trim()).join("·");
+
+  function boosted(pos) {
+    const s = new Set(root.kids.map(c => c.tok));
+    byKey[pos].kids.forEach(c => s.add(c.tok));
+    return s;
+  }
+
+  const LP3 = { " rue": -5.0, " Le": -3.0, " de": -3.5, " Riv": -2.2, " R": -2.6, "c": -5.5, "oli": -7.0, " la": -1.8, " il": -4.0, "<|endoftext|>": -3.2 };
+  // each step: the hypotheses shown, with what they wrote, their tree position, Whisper's log-probabilities and the token written
+  const S = [
+    { hyps: [{ said: [], pos: "", pick: " rue",
+        lp: { " rue": -1.9, " Le": -3.5, " de": -2.8, " Riv": -7.0, " R": -5.5, "c": -6.0, "oli": -8.0, " la": -1.2, " il": -2.0, "<|endoftext|>": -4.0 } }],
+      msg: `The transcript is empty and the tree position is the root. The boosted tokens are the root's children, " rue" and " Le", which start a keyterm, and the eight other tokens keep their log-probability. "c" is in the tree and still gets nothing, because it continues « Leclerc » only after " Le"; boosted at every step, it would be pushed into the transcript wherever it fits. With the boosting weight, " rue" overtakes " la", and the hypothesis writes it.` },
+    { hyps: [{ said: [" rue"], pos: "| rue", pick: " de",
+        lp: { " rue": -5.0, " Le": -4.0, " de": -0.6, " Riv": -6.5, " R": -4.5, "c": -6.0, "oli": -8.0, " la": -2.5, " il": -3.5, "<|endoftext|>": -3.0 } }],
+      msg: `The hypothesis has written " rue", so its tree position is the node rue. Its boosted tokens are " de", the child that continues « rue de Rivoli » and « rue de Rennes », and the root's children " rue" and " Le" again, since a keyterm can start anywhere. The hypothesis writes " de".` },
+    { hyps: [{ said: [" rue", " de"], pos: "| rue| de", pick: " Riv", lp: LP3 }],
+      msg: `Tree position rue·de. The node has two children, " Riv" and " R", and both are boosted, with the root's children. The boosting weight lifts « Rivoli » and « Rennes » alike, and Whisper's log-probabilities, from the audio, decide between them. The hypothesis writes " Riv".` },
+    { hyps: [{ said: [" rue", " de", " Riv"], pos: "| rue| de| Riv", pick: "oli",
+        lp: { " rue": -6.0, " Le": -5.0, " de": -5.0, " Riv": -7.0, " R": -6.0, "c": -6.0, "oli": -0.4, " la": -4.0, " il": -4.0, "<|endoftext|>": -5.0 } }],
+      msg: `Tree position rue·de·Riv. Its one child, "oli", is boosted, with the root's children. The hypothesis writes "oli" and reaches a node that ends a keyterm: « rue de Rivoli » is complete, and its four tokens received the boosting weight four times, 4 × 1.5 = 6.` }
+  ];
+  let step = 0;
+
+  const svg = document.getElementById("bt-svg");
+  function drawTree(hyps) {
+    const multi = hyps.length > 1;
+    const onPath = {};
+    hyps.forEach((h, k) => { let n = byKey[h.pos]; while (n && n !== root) { onPath[n.key] = k; n = n.parent; } });
+    let g = "";
+    (function edges(n) {
+      n.kids.forEach(c => {
+        const k = onPath[c.key];
+        const st = k === undefined ? "" : `style="stroke:${COL[k]};stroke-width:2.5"`;
+        g += `<path class="edge" ${st} d="M${X(n.depth)},${Y(n.y)} C${X(n.depth) + 55},${Y(n.y)} ${X(c.depth) - 55},${Y(c.y)} ${X(c.depth)},${Y(c.y)}"/>`;
+        let fill = "";
+        if (n === root) fill = "var(--ok)";
+        else hyps.forEach((h, j) => { if (byKey[h.pos] === n) fill = multi ? COL[j] : "var(--ok)"; });
+        g += `<text text-anchor="middle" x="${(X(n.depth) + X(c.depth)) / 2}" y="${(Y(n.y) + Y(c.y)) / 2 - 6}" ${fill ? `style="fill:${fill};font-weight:bold"` : ""}>${q(c.tok)}</text>`;
+        edges(c);
+      });
+    })(root);
+    (function nodes(n) {
+      g += `<circle class="node ${n.end ? "end" : ""}" cx="${X(n.depth)}" cy="${Y(n.y)}" r="7"/>`;
+      if (n === root) g += `<text x="${X(0) - 10}" y="${Y(n.y) + 26}">root</text>`;
+      n.kids.forEach(nodes);
+    })(root);
+    hyps.forEach((h, k) => {
+      const n = byKey[h.pos];
+      g += `<circle cx="${X(n.depth)}" cy="${Y(n.y)}" r="${13 + k * 5}" fill="none" stroke="${COL[k]}" stroke-width="3"/>`;
+      if (multi) g += `<text class="hname" x="${X(n.depth) + 12}" y="${Y(n.y) - 16 - k * 6}" style="fill:${COL[k]}">${h.n}</text>`;
+    });
+    svg.innerHTML = g;
+  }
+
+  const pct = v => ((v - MIN) / (MAX - MIN) * 100).toFixed(1) + "%";
+  function list(h) {
+    const bset = boosted(h.pos);
+    return VOC.map(t => {
+      const on = bset.has(t), lp = h.lp[t], sc = on ? lp + W : lp;
+      const wbar = on ? `<div class="w" style="left:${pct(lp)};width:calc(${pct(sc)} - ${pct(lp)})"></div>` : "";
+      return `<div class="bt-r ${on ? "on" : ""} ${h.pick === t ? "pick" : ""}">
+        <span class="tok">${q(t).replace(/</g, "&lt;")}</span>
+        <div class="bt-track"><div class="lp" style="width:${pct(lp)}"></div>${wbar}</div>
+        <span class="val">${sc.toFixed(1)}</span></div>`;
+    }).join("") + axis();
+  }
+
+  const FR = (0 - MIN) / (MAX - MIN);
+  function axis() {
+    const ticks = [-8, -6, -4, -2, 0, 2].map(v =>
+      `<span class="${v === 0 ? "zero" : ""}" style="left:${pct(v)}">${v}</span>`).join("");
+    return `<div class="bt-r"><span></span><div class="bt-axis">${ticks}</div><span></span></div>
+      <div class="bt-r"><span></span><span class="bt-atitle">log probability</span><span></span></div>
+      <div class="bt-zline" style="left:calc(7.5em + 6px + (100% - 7.5em - 4.2em - 12px) * ${FR})"></div>`;
+  }
+
+  function draw() {
+    const s = S[step];
+    const multi = s.hyps.length > 1;
+    drawTree(s.hyps);
+    document.getElementById("bt-said").innerHTML = s.hyps.map((h, k) =>
+      `<div><span class="label" ${multi ? `style="color:${COL[k]}"` : ""}>${multi ? "hypothesis " + h.n : "written so far"}</span> ${h.said.length ? h.said.map(q).join(" ") : "(empty)"} · <span class="label">tree position</span> ${pname(h.pos)}</div>`).join("");
+    document.getElementById("bt-scores").innerHTML = s.hyps.map((h, k) =>
+      `<div class="bt-wrap" style="gap:4px"><span class="label" ${multi ? `style="color:${COL[k]}"` : ""}>${multi ? "hypothesis " + h.n + " · " : ""}score of each next token</span><div class="bt-list">${list(h)}</div></div>`).join("");
+    document.getElementById("bt-msg").textContent = s.msg;
+    document.getElementById("bt-step").textContent = `step ${step + 1} of ${S.length}`;
+    document.getElementById("bt-dots").innerHTML = S.map((_, i) => `<span class="${i === step ? "on" : ""}"></span>`).join("");
+    document.getElementById("bt-prev").disabled = step === 0;
+    document.getElementById("bt-next").disabled = step === S.length - 1;
+  }
+  document.getElementById("bt-prev").onclick = () => { if (step > 0) { step--; draw(); } };
+  document.getElementById("bt-next").onclick = () => { if (step < S.length - 1) { step++; draw(); } };
+  draw();
+})();
+</script>
+
+<script>
+(function () {
+  // the beam of section 3 after its step 3, and the four extensions of its step 4
+  const P = [
+    { t: ' le char<b> le</b>', base: -1.8, k: 0 },
+    { t: ' le char<b class="bt"> Le</b>', base: -2.9, k: 1, key: 1 }
+  ];
+  const H = [
+    { t: ' le char le<b> cl</b>', base: -2.7, k: 0, sub: "" },
+    { t: ' le char le<b> clair</b>', base: -3.8, k: 0, sub: "" },
+    { t: ' le char<b class="bt"> Le</b><b class="bt">c</b>', base: -4.5, k: 2, key: 1, sub: '" Le" and "c" boosted: + 2w' },
+    { t: ' le char<b class="bt"> Le</b><b> cl</b>', base: -5.1, k: 0, key: 1, sub: '" cl" continues no keyterm: the w of " Le" is taken back, + w − w' }
+  ];
+  const w = document.getElementById("fu-w"), v = document.getElementById("fu-v"),
+        rows = document.getElementById("fu-rows"), beam = document.getElementById("fu-beam");
+  const span = 6;
+  const bar = (base, b) => {
+    const s = base + b, wid = Math.max(0, (span + s) / span * 100), bw = b / span * 100;
+    return `<div class="fu-bar"><span style="left:${100 - wid}%"></span><span class="b" style="left:${100 - bw}%"></span></div>`;
+  };
+  const fmt = (base, b) => b ? `${base.toFixed(1)} + ${b.toFixed(2)} = ${(base + b).toFixed(2)}` : (base).toFixed(2);
+  function draw() {
+    const x = parseFloat(w.value); v.textContent = x.toFixed(2);
+    beam.innerHTML = P.map(h => `<div class="fu-par ${h.key ? "key" : ""}"><span class="fu-tok">${h.t}</span><span class="fu-num">${fmt(h.base, h.k * x)}</span></div>`).join("");
+    const sc = H.map(h => h.base + h.k * x);
+    const order = sc.map((s, i) => [s, i]).sort((a, b) => b[0] - a[0]).map(p => p[1]);
+    const kept = new Set(order.slice(0, 2));
+    rows.innerHTML = H.map((h, i) => `<div class="fu-ext ${kept.has(i) ? "kept" : "cut"} ${h.key ? "key" : ""}">
+        <span><span class="fu-tok">${h.t}</span> <span class="fu-tag">${kept.has(i) ? "kept" : "pruned"}</span></span>
+        ${bar(h.base, h.k * x)}<span class="n">${fmt(h.base, h.k * x)}</span>
+        ${h.sub ? `<span class="fu-sub">${h.sub}</span>` : ""}</div>`).join("");
+  }
+  w.oninput = draw; draw();
+})();
+</script>
